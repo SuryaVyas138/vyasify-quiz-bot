@@ -36,7 +36,8 @@ def now_time():
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-ADMIN_IDS = {123456789}  # 🔴 REPLACE with your Telegram ID
+# 🔴 REPLACE with your Telegram user ID(s)
+ADMIN_IDS = {123456789}
 
 OFFENSIVE_WORDS = {
     "fuck", "shit", "bitch", "asshole", "idiot", "stupid"
@@ -78,12 +79,14 @@ async def send_greeting(context, user_id, name):
     ])
 
     text = (
-        f"👋 *Hello {name}!*\n\n"
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "📝 20 seconds per question\n"
-        "📊 Score, time & leaderboard\n"
-        "📖 Detailed explanations at the end\n\n"
-        "👇 Tap below to continue"
+        "This is a *daily exam-oriented quiz* designed specifically for:\n"
+        "🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
+        "📝 *20 seconds per question*\n"
+        "📊 *Score, Rank & Percentile*\n"
+        "📖 *Detailed explanations at the end*\n\n"
+        "Practice daily. Compete smartly. Improve consistently.\n\n"
+        "👇 *Tap below to begin*"
     )
 
     await context.bot.send_message(
@@ -115,9 +118,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=(
                 "ℹ️ *How It Works*\n\n"
                 "1️⃣ Start the quiz\n"
-                "2️⃣ 20 sec per question\n"
+                "2️⃣ 20 seconds per question\n"
                 "3️⃣ Auto-move on timeout\n"
-                "4️⃣ Result + leaderboard\n"
+                "4️⃣ Score, rank & explanations\n"
             ),
             parse_mode="Markdown",
         )
@@ -235,14 +238,12 @@ async def finish_quiz(context, user_id):
 
     accuracy = int((correct / total) * 100)
 
-    # Store daily score
     daily_scores[user_id] = {
         "name": s["name"],
         "score": correct,
         "time": time_taken
     }
 
-    # Leaderboard (score ↓, time ↑)
     ranked = sorted(
         daily_scores.values(),
         key=lambda x: (-x["score"], x["time"])
