@@ -2,6 +2,7 @@ import os
 import csv
 import requests
 import asyncio
+import time
 from io import StringIO
 from datetime import datetime
 
@@ -13,32 +14,51 @@ from telegram.ext import (
     PollAnswerHandler,
 )
 
+# ================= CONFIG =================
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
+BASE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
 
-QUESTION_TIME = 20  # seconds
+QUESTION_TIME = 20          # seconds per question
+TRANSITION_DELAY = 1        # smooth gap between questions (seconds)
 
 # In-memory sessions
 user_sessions = {}
 
-# ---------------- /start ----------------
+# ================= /start =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📘 Welcome to Vyasify Quiz Bot\n\n"
+        "📘 *Welcome to Vyasify Quiz Bot*\n\n"
         "⏱ 20 seconds per question\n"
-        "📅 Use /daily to start the quiz"
+        "📅 Use /daily to start today’s quiz",
+        parse_mode="Markdown",
     )
 
-# ---------------- /daily ----------------
+# ================= /daily =================
 
 async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    await update.message.reply_text(
+        "📝 *Daily Quiz Initialising…*\n"
+        "⏳ Fetching latest questions…",
+        parse_mode="Markdown",
+    )
+
     today = datetime.now().strftime("%d-%m-%Y")
     questions = []
 
+    # ---- FORCE FRESH FETCH (cache busting) ----
+    csv_url = f"{BASE_CSV_URL}&_ts={int(time.time())}"
+
     try:
-        response = requests.get(CSV_URL, timeout=15)
+        response = requests.get(
+            csv_url,
+            timeout=15,
+            headers={"Cache-Control": "no-cache"},
+        )
         response.raise_for_status()
     except Exception:
         await update.message.reply_text("⚠️ Unable to load quiz data.")
@@ -50,10 +70,10 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
             questions.append(row)
 
     if not questions:
-        await update.message.reply_text("❌ Today’s quiz is not uploaded.")
+        await update.message.reply_text(
+            "❌ Today’s quiz is not yet uploaded.\nPlease check back later."
+        )
         return
-
-    user_id = update.effective_user.id
 
     user_sessions[user_id] = {
         "questions": questions,
@@ -66,14 +86,15 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     await update.message.reply_text(
-        f"📝 Quiz Started\n"
-        f"Questions: {len(questions)}\n"
-        f"⏱ 20 seconds per question"
+        f"✅ *Quiz Ready!*\n"
+        f"📊 Questions: {len(questions)}\n"
+        f"⏱ Time per question: {QUESTION_TIME} seconds",
+        parse_mode="Markdown",
     )
 
     await send_question(context, user_id)
 
-# ---------------- SEND QUESTION ----------------
+# ================= SEND QUESTION =================
 
 async def send_question(context, user_id):
     session = user_sessions.get(user_id)
@@ -85,6 +106,14 @@ async def send_question(context, user_id):
         return
 
     q = session["questions"][session["index"]]
+    q_no = session["index"] + 1
+    total = session["total"]
+
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"🧠 *Question {q_no} of {total}*\n⏱ {QUESTION_TIME} seconds",
+        parse_mode="Markdown",
+    )
 
     poll = await context.bot.send_poll(
         chat_id=user_id,
@@ -96,25 +125,23 @@ async def send_question(context, user_id):
             q["option_d"],
         ],
         type="quiz",
-        correct_option_id=ord(q["correct_option"]) - ord("A"),
+        correct_option_id=ord(q["correct_option"].strip()) - ord("A"),
         is_anonymous=False,
         open_period=QUESTION_TIME,
     )
 
     session["active"] = {
         "poll_id": poll.poll.id,
-        "correct": ord(q["correct_option"]) - ord("A"),
+        "correct": ord(q["correct_option"].strip()) - ord("A"),
         "explanation": q["explanation"],
         "source": q["source"],
-        "answered": False,
     }
 
-    # Start timer task
     session["timer_task"] = asyncio.create_task(
         handle_timeout(context, user_id)
     )
 
-# ---------------- TIMEOUT HANDLER ----------------
+# ================= TIMEOUT HANDLER =================
 
 async def handle_timeout(context, user_id):
     await asyncio.sleep(QUESTION_TIME)
@@ -123,8 +150,8 @@ async def handle_timeout(context, user_id):
     if not session or not session["active"]:
         return
 
-    # Time over without answer
     data = session["active"]
+
     session["explanations"].append(
         f"• {data['explanation']} (Source: {data['source']})"
     )
@@ -132,9 +159,10 @@ async def handle_timeout(context, user_id):
     session["index"] += 1
     session["active"] = None
 
+    await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ---------------- ANSWER HANDLER ----------------
+# ================= ANSWER HANDLER =================
 
 async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
@@ -145,7 +173,6 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     data = session["active"]
     chosen = update.poll_answer.option_ids[0]
 
-    # Cancel timer
     if session["timer_task"]:
         session["timer_task"].cancel()
         session["timer_task"] = None
@@ -160,9 +187,10 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session["index"] += 1
     session["active"] = None
 
+    await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ---------------- RESULT ----------------
+# ================= FINAL RESULT =================
 
 async def send_result(context, user_id):
     session = user_sessions.get(user_id)
@@ -171,7 +199,7 @@ async def send_result(context, user_id):
 
     text = (
         f"✅ *Quiz Completed!*\n\n"
-        f"🎯 *Score:* {session['score']} / {session['total']}\n\n"
+        f"🎯 *Your Score:* {session['score']} / {session['total']}\n\n"
         f"*📖 Explanations:*\n" +
         "\n".join(session["explanations"])
     )
@@ -184,7 +212,7 @@ async def send_result(context, user_id):
 
     del user_sessions[user_id]
 
-# ---------------- MAIN ----------------
+# ================= MAIN =================
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
