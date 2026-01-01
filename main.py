@@ -6,7 +6,11 @@ import requests
 from io import StringIO
 from datetime import datetime
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -19,15 +23,19 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-QUIZ_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
+QUIZ_CSV_URL = (
+    "https://docs.google.com/spreadsheets/d/e/"
+    "2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C"
+    "/pub?output=csv"
+)
 
 QUESTION_TIME = 20
 TRANSITION_DELAY = 1
 
 # ================= STORAGE =================
 
-sessions = {}               # active quiz sessions
-daily_scores = {}           # date -> list of (user_id, score, time)
+sessions = {}          # user_id -> session
+daily_scores = {}      # date -> [(user_id, score, time)]
 
 # ================= HELPERS =================
 
@@ -36,9 +44,9 @@ def today():
 
 def fetch_csv(url):
     url = f"{url}&_ts={int(time.time())}"
-    res = requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"})
-    res.raise_for_status()
-    return list(csv.DictReader(StringIO(res.content.decode("utf-8-sig"))))
+    r = requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"})
+    r.raise_for_status()
+    return list(csv.DictReader(StringIO(r.content.decode("utf-8-sig"))))
 
 def compute_rank(date, user_id):
     records = daily_scores.get(date, [])
@@ -52,9 +60,9 @@ def compute_rank(date, user_id):
 
     return total, total, 0
 
-# ================= QUIZ START (REUSABLE) =================
+# ================= QUIZ START =================
 
-async def start_quiz(context: ContextTypes.DEFAULT_TYPE, user_id: int, name: str):
+async def start_quiz(context, user_id, name):
     rows = fetch_csv(QUIZ_CSV_URL)
     questions = [r for r in rows if r["date"].strip() == today()]
 
@@ -65,10 +73,7 @@ async def start_quiz(context: ContextTypes.DEFAULT_TYPE, user_id: int, name: str
         )
         return
 
-    # Clear any old session
-    if user_id in sessions:
-        del sessions[user_id]
-
+    # Reset old session
     sessions[user_id] = {
         "questions": questions,
         "index": 0,
@@ -81,7 +86,6 @@ async def start_quiz(context: ContextTypes.DEFAULT_TYPE, user_id: int, name: str
         "explanations": [],
     }
 
-    # Intro messages (guaranteed order)
     await context.bot.send_message(
         chat_id=user_id,
         text="📘 Daily Quiz Initialising…"
@@ -117,7 +121,6 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_question(context, user_id):
     s = sessions.get(user_id)
-
     if not s or s["finished"]:
         return
 
@@ -128,6 +131,7 @@ async def send_question(context, user_id):
 
     q = s["questions"][s["index"]]
 
+    # 💡 Explanation INSIDE poll (Telegram will auto-show it)
     await context.bot.send_poll(
         chat_id=user_id,
         question=q["question"],
@@ -139,6 +143,8 @@ async def send_question(context, user_id):
         ],
         type="quiz",
         correct_option_id=ord(q["correct_option"].strip()) - 65,
+        explanation=f"{q['explanation']}\n\nSource: {q['source']}",
+        explanation_parse_mode="Markdown",
         is_anonymous=False,
         open_period=QUESTION_TIME,
     )
@@ -232,7 +238,7 @@ async def finish_quiz(context, user_id):
 
     del sessions[user_id]
 
-# ================= RETRY BUTTON =================
+# ================= RETRY =================
 
 async def retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
