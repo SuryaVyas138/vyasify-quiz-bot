@@ -80,7 +80,7 @@ async def send_greeting(context, user_id, name):
     text = (
         f"👋 *Hello {name}!*\n\n"
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a daily exam-oriented quiz designed for *UPSC, SSC, and Regulatory Body* aspirants.\n\n"
+        "This is a daily exam-oriented quiz designed for *UPSC, SSC, and Regulatory Body Exams* aspirants.\n\n"
         "📝 20 seconds per question\n"
         "📊 Score & percentile\n"
         "📖 Detailed explanations at the end\n\n"
