@@ -43,8 +43,8 @@ TRANSITION_DELAY = 1
 
 # ================= STORAGE =================
 
-sessions = {}          # user_id -> session
-daily_scores = {}      # date -> [(user_id, name, score, time)]
+sessions = {}
+daily_scores = {}
 
 # ================= HELPERS =================
 
@@ -65,7 +65,7 @@ async def send_greeting(context, user_id, name):
     text = (
         f"👋 *Hello {name}!*\n\n"
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a daily exam-oriented quiz designed for *UPSC, SSC, and Regulatory Bodies Exam* aspirants.\n\n"
+        "This is a daily exam-oriented quiz designed for *UPSC, SSC, and Regulatory Body* aspirants.\n\n"
         "📝 20 seconds per question\n"
         "📊 Score, rank & percentile\n"
         "📖 Detailed explanations at the end\n\n"
@@ -145,9 +145,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "ℹ️ *How Vyasify Daily Quiz Works*\n\n"
                 "1️⃣ Tap *Start Today’s Quiz*\n"
                 "2️⃣ Answer each question within 20 seconds\n"
-                "3️⃣ Get score, rank & percentile\n"
+                "3️⃣ Get score & percentile\n"
                 "4️⃣ Review explanations at the end\n\n"
-                "🎯 One quiz per day, exam-oriented."
+                "🎯 Learning-focused daily practice."
             ),
             parse_mode="Markdown",
         )
@@ -215,7 +215,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ================= EXPLANATION STORAGE (CLEAN) =================
+# ================= EXPLANATION STORAGE =================
 
 def store_explanation(session):
     q = session["questions"][session["index"]]
@@ -230,33 +230,23 @@ def store_explanation(session):
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
     total = len(s["questions"])
+    correct = s["score"]
+    wrong = total - correct
     time_taken = int(time.time() - s["start"])
     date = today()
 
-    daily_scores.setdefault(date, []).append(
-        (user_id, s["name"], s["score"], time_taken)
-    )
-
-    records = daily_scores[date]
-    records.sort(key=lambda x: (-x[2], x[3]))
-
-    rank = next(i + 1 for i, r in enumerate(records) if r[0] == user_id)
-    percentile = int(((len(records) - rank) / len(records)) * 100)
-
-    leaderboard = ["🏆 *Today’s Leaderboard*\n"]
-    for i, r in enumerate(records[:min(10, len(records))], 1):
-        leaderboard.append(f"{i}️⃣ {r[1]} — {r[2]}/{total} — {r[3]}s")
+    # Score-based percentile
+    percentile = int((correct / total) * 100)
 
     await context.bot.send_message(
         chat_id=user_id,
         text=(
             "🏁 *Quiz Finished!*\n\n"
             f"📅 Date: {date}\n"
-            f"✅ Score: {s['score']} / {total}\n"
-            f"⏱ Time: {time_taken}s\n"
-            f"🏆 Rank: {rank}\n"
-            f"📈 Percentile: {percentile}%\n\n" +
-            "\n".join(leaderboard)
+            f"✅ Correct: {correct}\n"
+            f"❌ Wrong: {wrong}\n"
+            f"🎯 Percentile: {percentile}%\n"
+            f"⏱ Time: {time_taken}s"
         ),
         parse_mode="Markdown",
     )
