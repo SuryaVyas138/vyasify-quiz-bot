@@ -43,8 +43,8 @@ TRANSITION_DELAY = 1
 
 # ================= STORAGE =================
 
-sessions = {}
-daily_scores = {}
+sessions = {}          # user_id -> session
+daily_scores = {}      # date -> [(user_id, name, score, time)]
 
 # ================= HELPERS =================
 
@@ -53,18 +53,6 @@ def fetch_csv(url):
     r = requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"})
     r.raise_for_status()
     return list(csv.DictReader(StringIO(r.content.decode("utf-8-sig"))))
-
-def compute_rank(date, user_id):
-    records = daily_scores.get(date, [])
-    records.sort(key=lambda x: (-x[1], x[2]))
-
-    total = len(records)
-    for i, r in enumerate(records, start=1):
-        if r[0] == user_id:
-            percentile = int(((total - i) / total) * 100)
-            return i, total, percentile
-
-    return total, total, 0
 
 # ================= GREETING =================
 
@@ -77,7 +65,7 @@ async def send_greeting(context, user_id, name):
     text = (
         f"👋 *Hello {name}!*\n\n"
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a daily exam-oriented quiz designed for *UPSC & NABARD* aspirants.\n\n"
+        "This is a daily exam-oriented quiz designed for *UPSC, SSC, and Regulatory Body* aspirants.\n\n"
         "📝 20 seconds per question\n"
         "📊 Score, rank & percentile\n"
         "📖 Detailed explanations at the end\n\n"
@@ -148,7 +136,6 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     user = query.from_user
 
     if query.data == "start_quiz":
@@ -251,16 +238,26 @@ async def finish_quiz(context, user_id):
     date = today()
 
     daily_scores.setdefault(date, []).append(
-        (user_id, s["score"], time_taken)
+        (user_id, s["name"], s["score"], time_taken)
     )
 
-    rank, total_users, percentile = compute_rank(date, user_id)
+    records = daily_scores[date]
+    records.sort(key=lambda x: (-x[2], x[3]))
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔁 Try Again", callback_data="start_quiz")]
-    ])
+    rank = next(i + 1 for i, r in enumerate(records) if r[0] == user_id)
+    total_users = len(records)
+    percentile = int(((total_users - rank) / total_users) * 100)
 
-    msg = (
+    top_n = records[:min(len(records), 10)]
+    leaderboard_lines = ["🏆 *Today’s Leaderboard*\n"]
+
+    for i, r in enumerate(top_n, start=1):
+        _, name, score, t = r
+        leaderboard_lines.append(
+            f"{i}️⃣ {name} — {score}/{total} — {t//60}m {t%60}s"
+        )
+
+    summary_msg = (
         "🏁 *Quiz Finished!*\n\n"
         f"📅 Date: {date}\n"
         f"✅ Correct: {s['score']}\n"
@@ -268,14 +265,23 @@ async def finish_quiz(context, user_id):
         f"⏱ Time: {time_taken//60} min {time_taken%60} sec\n\n"
         f"🏆 Rank: {rank} / {total_users}\n"
         f"📈 You scored higher than {percentile}% of participants\n\n"
+        "\n".join(leaderboard_lines)
+    )
+
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=summary_msg,
+        parse_mode="Markdown",
+    )
+
+    explanation_msg = (
         "📖 *Explanations*\n\n" +
         "\n\n".join(s["explanations"])
     )
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=msg,
-        reply_markup=keyboard,
+        text=explanation_msg,
         parse_mode="Markdown",
     )
 
