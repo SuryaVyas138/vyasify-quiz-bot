@@ -96,7 +96,6 @@ async def send_greeting(context, user_id, name):
         [InlineKeyboardButton("ℹ️ How it works", callback_data="how_it_works")]
     ])
 
-    # ✅ REFINED GREETING (FINAL)
     text = (
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
         "A focused daily practice platform for aspirants of  \n"
@@ -139,7 +138,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "how_it_works":
         await context.bot.send_message(
             chat_id=user.id,
-            text="ℹ️ Daily exam-style quiz with timer, leaderboard & explanations.",
+            text=(
+                "ℹ️ *How the Daily Quiz Works*\n\n"
+                "This is a time-bound daily quiz designed to support "
+                "exam-focused preparation.\n\n"
+                "Each attempt includes:\n"
+                "• A fixed time per question to build speed\n"
+                "• Performance-based ranking for self-evaluation\n"
+                "• Detailed explanations to strengthen concepts\n\n"
+                "Use the quiz to track accuracy, improve speed, "
+                "and identify areas for improvement."
+            ),
             parse_mode="Markdown",
         )
 
@@ -187,7 +196,6 @@ async def start_quiz(context, user_id, name):
 
     await asyncio.sleep(1)
     await msg.delete()
-
     await send_question(context, user_id)
 
 # ================= QUIZ FLOW =================
@@ -325,7 +333,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Any non-offensive text → show greeting
     await send_greeting(context, user.id, user.first_name)
 
 # ================= MAIN =================
