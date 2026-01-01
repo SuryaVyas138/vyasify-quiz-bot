@@ -4,7 +4,7 @@ import time
 import asyncio
 import requests
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from telegram import (
     Update,
@@ -19,6 +19,13 @@ from telegram.ext import (
     ContextTypes,
 )
 
+# ================= TIMEZONE (IST FIX) =================
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def today():
+    return datetime.now(IST).strftime("%d-%m-%Y")
+
 # ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -29,18 +36,15 @@ QUIZ_CSV_URL = (
     "/pub?output=csv"
 )
 
-QUESTION_TIME = 20
-TRANSITION_DELAY = 1
+QUESTION_TIME = 20          # seconds per question
+TRANSITION_DELAY = 1        # smooth transition delay
 
 # ================= STORAGE =================
 
-sessions = {}          # user_id -> session
-daily_scores = {}      # date -> [(user_id, score, time)]
+sessions = {}               # user_id -> session data
+daily_scores = {}           # date -> [(user_id, score, time)]
 
 # ================= HELPERS =================
-
-def today():
-    return datetime.now().strftime("%d-%m-%Y")
 
 def fetch_csv(url):
     url = f"{url}&_ts={int(time.time())}"
@@ -50,7 +54,7 @@ def fetch_csv(url):
 
 def compute_rank(date, user_id):
     records = daily_scores.get(date, [])
-    records.sort(key=lambda x: (-x[1], x[2]))  # score desc, time asc
+    records.sort(key=lambda x: (-x[1], x[2]))  # score DESC, time ASC
 
     total = len(records)
     for i, r in enumerate(records, start=1):
@@ -73,7 +77,6 @@ async def start_quiz(context, user_id, name):
         )
         return
 
-    # Reset old session
     sessions[user_id] = {
         "questions": questions,
         "index": 0,
@@ -96,6 +99,7 @@ async def start_quiz(context, user_id, name):
         chat_id=user_id,
         text=(
             f"✅ Quiz Ready!\n\n"
+            f"📅 Date: {today()}\n"
             f"🏁 Questions: {len(questions)}\n"
             f"⏱ Time per question: {QUESTION_TIME} seconds"
         )
@@ -131,7 +135,6 @@ async def send_question(context, user_id):
 
     q = s["questions"][s["index"]]
 
-    # 💡 Explanation INSIDE poll (Telegram will auto-show it)
     await context.bot.send_poll(
         chat_id=user_id,
         question=q["question"],
@@ -220,6 +223,7 @@ async def finish_quiz(context, user_id):
 
     msg = (
         "🏁 *Quiz Finished!*\n\n"
+        f"📅 Date: {date}\n"
         f"✅ Correct: {s['score']}\n"
         f"❌ Wrong: {total - s['score']}\n"
         f"⏱ Time: {time_taken//60} min {time_taken%60} sec\n\n"
