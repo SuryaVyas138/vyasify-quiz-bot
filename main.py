@@ -17,9 +17,9 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
 
-QUESTION_TIME = 20  # seconds per question
+QUESTION_TIME = 20  # seconds
 
-# In-memory session storage
+# In-memory sessions
 user_sessions = {}
 
 # ---------------- /start ----------------
@@ -27,8 +27,8 @@ user_sessions = {}
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📘 Welcome to Vyasify Quiz Bot\n\n"
-        "⏱ Each question has 20 seconds.\n"
-        "📅 Use /daily to start today’s quiz."
+        "⏱ 20 seconds per question\n"
+        "📅 Use /daily to start the quiz"
     )
 
 # ---------------- /daily ----------------
@@ -41,9 +41,7 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.get(CSV_URL, timeout=15)
         response.raise_for_status()
     except Exception:
-        await update.message.reply_text(
-            "⚠️ Unable to load quiz data right now."
-        )
+        await update.message.reply_text("⚠️ Unable to load quiz data.")
         return
 
     reader = csv.DictReader(StringIO(response.text))
@@ -52,42 +50,41 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
             questions.append(row)
 
     if not questions:
-        await update.message.reply_text(
-            "❌ Today’s quiz is not yet uploaded."
-        )
+        await update.message.reply_text("❌ Today’s quiz is not uploaded.")
         return
 
     user_id = update.effective_user.id
 
     user_sessions[user_id] = {
-        "score": 0,
-        "current": 0,
-        "total": len(questions),
         "questions": questions,
+        "index": 0,
+        "score": 0,
+        "total": len(questions),
         "explanations": [],
         "active": None,
+        "timer_task": None,
     }
 
     await update.message.reply_text(
-        f"📝 Daily Quiz Started\n"
+        f"📝 Quiz Started\n"
         f"Questions: {len(questions)}\n"
         f"⏱ 20 seconds per question"
     )
 
-    await send_next_question(context, user_id)
+    await send_question(context, user_id)
 
-# ---------------- SEND QUESTIONS SEQUENTIALLY ----------------
+# ---------------- SEND QUESTION ----------------
 
-async def send_next_question(context, user_id):
+async def send_question(context, user_id):
     session = user_sessions.get(user_id)
     if not session:
         return
 
-    if session["current"] >= session["total"]:
-        await send_final_result(context, user_id)
+    if session["index"] >= session["total"]:
+        await send_result(context, user_id)
         return
 
-    q = session["questions"][session["current"]]
+    q = session["questions"][session["index"]]
 
     poll = await context.bot.send_poll(
         chat_id=user_id,
@@ -99,32 +96,45 @@ async def send_next_question(context, user_id):
             q["option_d"],
         ],
         type="quiz",
-        correct_option_id=ord(q["correct_option"].strip()) - ord("A"),
+        correct_option_id=ord(q["correct_option"]) - ord("A"),
         is_anonymous=False,
         open_period=QUESTION_TIME,
     )
 
     session["active"] = {
         "poll_id": poll.poll.id,
-        "correct": ord(q["correct_option"].strip()) - ord("A"),
+        "correct": ord(q["correct_option"]) - ord("A"),
         "explanation": q["explanation"],
         "source": q["source"],
         "answered": False,
     }
 
-    # Wait for timer
-    await asyncio.sleep(QUESTION_TIME + 1)
+    # Start timer task
+    session["timer_task"] = asyncio.create_task(
+        handle_timeout(context, user_id)
+    )
 
-    # If NOT answered → time over
-    if session["active"] and not session["active"]["answered"]:
-        session["explanations"].append(
-            f"• {q['explanation']} (Source: {q['source']})"
-        )
-        session["current"] += 1
-        session["active"] = None
-        await send_next_question(context, user_id)
+# ---------------- TIMEOUT HANDLER ----------------
 
-# ---------------- POLL ANSWER HANDLER ----------------
+async def handle_timeout(context, user_id):
+    await asyncio.sleep(QUESTION_TIME)
+
+    session = user_sessions.get(user_id)
+    if not session or not session["active"]:
+        return
+
+    # Time over without answer
+    data = session["active"]
+    session["explanations"].append(
+        f"• {data['explanation']} (Source: {data['source']})"
+    )
+
+    session["index"] += 1
+    session["active"] = None
+
+    await send_question(context, user_id)
+
+# ---------------- ANSWER HANDLER ----------------
 
 async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
@@ -132,9 +142,13 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not session or not session["active"]:
         return
 
-    chosen = update.poll_answer.option_ids[0]
     data = session["active"]
-    data["answered"] = True
+    chosen = update.poll_answer.option_ids[0]
+
+    # Cancel timer
+    if session["timer_task"]:
+        session["timer_task"].cancel()
+        session["timer_task"] = None
 
     if chosen == data["correct"]:
         session["score"] += 1
@@ -143,19 +157,19 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"• {data['explanation']} (Source: {data['source']})"
     )
 
-    session["current"] += 1
+    session["index"] += 1
     session["active"] = None
 
-    await send_next_question(context, user_id)
+    await send_question(context, user_id)
 
-# ---------------- FINAL RESULT ----------------
+# ---------------- RESULT ----------------
 
-async def send_final_result(context, user_id):
+async def send_result(context, user_id):
     session = user_sessions.get(user_id)
     if not session:
         return
 
-    result_text = (
+    text = (
         f"✅ *Quiz Completed!*\n\n"
         f"🎯 *Score:* {session['score']} / {session['total']}\n\n"
         f"*📖 Explanations:*\n" +
@@ -164,7 +178,7 @@ async def send_final_result(context, user_id):
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=result_text,
+        text=text,
         parse_mode="Markdown",
     )
 
