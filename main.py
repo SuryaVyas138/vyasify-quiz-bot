@@ -96,13 +96,18 @@ async def send_greeting(context, user_id, name):
         [InlineKeyboardButton("ℹ️ How it works", callback_data="how_it_works")]
     ])
 
+    # ✅ REFINED GREETING (FINAL)
     text = (
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "🎯 *UPSC | SSC | Regulatory Body Exams*\n\n"
-        "📝 20 seconds per question\n"
-        "📊 Score, Rank & Percentile\n"
-        "📖 Detailed explanations at the end\n\n"
-        "👇 *Tap below to start the quiz*"
+        "A focused daily practice platform for aspirants of  \n"
+        "🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
+        "What you get in every quiz:\n"
+        "📝 *20 seconds per question* — build speed and precision  \n"
+        "📊 *Score, Rank & Percentile* — benchmark your preparation  \n"
+        "📖 *Detailed explanations* — strengthen concepts, not guesses\n\n"
+        "Practice daily and improve accuracy.  \n"
+        "Consistency builds confidence. Accuracy builds ranks.\n\n"
+        "👇 *Tap below to begin today’s quiz*"
     )
 
     await context.bot.send_message(
@@ -164,19 +169,25 @@ async def start_quiz(context, user_id, name):
 
     msg = await context.bot.send_message(
         chat_id=user_id,
-        text=f"📘 *Quiz for {quiz_date}*\nStarting in 3…",
+        text=f"📘 *Quiz for {quiz_date}*\n\n⏳ Starting in *3️⃣*",
         parse_mode="Markdown"
     )
 
-    for i in [2, 1]:
-        await asyncio.sleep(1)
-        await msg.edit_text(
-            f"📘 *Quiz for {quiz_date}*\nStarting in {i}…",
-            parse_mode="Markdown"
-        )
+    await asyncio.sleep(1)
+    await msg.edit_text(
+        f"📘 *Quiz for {quiz_date}*\n\n⏳ Starting in *2️⃣*",
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(1)
+    await msg.edit_text(
+        f"📘 *Quiz for {quiz_date}*\n\n⏳ Starting in *1️⃣*",
+        parse_mode="Markdown"
+    )
 
     await asyncio.sleep(1)
     await msg.delete()
+
     await send_question(context, user_id)
 
 # ================= QUIZ FLOW =================
@@ -258,14 +269,12 @@ async def finish_quiz(context, user_id):
     minutes, seconds = divmod(time_taken, 60)
     accuracy = int((correct / total) * 100)
 
-    # 🔹 Store score for leaderboard
     daily_scores[user_id] = {
         "name": s["name"],
         "score": correct,
         "time": time_taken
     }
 
-    # 🔹 Prepare leaderboard
     ranked = sorted(
         daily_scores.values(),
         key=lambda x: (-x["score"], x["time"])
@@ -274,11 +283,8 @@ async def finish_quiz(context, user_id):
     leaderboard_text = ""
     for i, e in enumerate(ranked, start=1):
         m, sec = divmod(e["time"], 60)
-        leaderboard_text += (
-            f"{i}. {e['name']} — {e['score']} | {m}m {sec}s\n"
-        )
+        leaderboard_text += f"{i}. {e['name']} — {e['score']} | {m}m {sec}s\n"
 
-    # 🔹 Send result + leaderboard
     await context.bot.send_message(
         chat_id=user_id,
         text=(
@@ -293,7 +299,6 @@ async def finish_quiz(context, user_id):
         parse_mode="Markdown"
     )
 
-    # 🔹 Send explanations
     await context.bot.send_message(
         chat_id=user_id,
         text="📖 *Simple Explanations*\n\n" + "\n\n".join(s["explanations"]),
@@ -320,7 +325,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Any non-offensive text → greeting + start quiz
+    # Any non-offensive text → show greeting
     await send_greeting(context, user.id, user.first_name)
 
 # ================= MAIN =================
