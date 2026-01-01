@@ -1,8 +1,8 @@
 import os
 import csv
-import requests
-import asyncio
 import time
+import asyncio
+import requests
 from io import StringIO
 from datetime import datetime
 
@@ -10,217 +10,182 @@ from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    ContextTypes,
     PollAnswerHandler,
+    ContextTypes,
 )
 
 # ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+QUIZ_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
+LEADERBOARD_CSV_URL = os.environ.get("LEADERBOARD_CSV_URL")
 
-BASE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
+QUESTION_TIME = 20
+TRANSITION_DELAY = 1
 
-QUESTION_TIME = 20          # seconds per question
-TRANSITION_DELAY = 1        # smooth gap between questions (seconds)
+sessions = {}
 
-# In-memory sessions
-user_sessions = {}
+# ================= UTIL =================
 
-# ================= /start =================
+def today():
+    return datetime.now().strftime("%d-%m-%Y")
+
+def fetch_csv(url):
+    url = f"{url}&_ts={int(time.time())}"
+    res = requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"})
+    res.raise_for_status()
+    return list(csv.DictReader(StringIO(res.content.decode("utf-8-sig"))))
+
+# ================= COMMANDS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📘 *Welcome to Vyasify Quiz Bot*\n\n"
-        "⏱ 20 seconds per question\n"
-        "📅 Use /daily to start today’s quiz",
-        parse_mode="Markdown",
+        "📘 *Vyasify Daily Quiz*\n\n"
+        "📝 Use /daily to start today’s quiz",
+        parse_mode="Markdown"
     )
-
-# ================= /daily =================
 
 async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    name = update.effective_user.first_name
 
-    await update.message.reply_text(
-        "📝 *Daily Quiz Initialising…*\n"
-        "⏳ Fetching latest questions…",
-        parse_mode="Markdown",
-    )
-
-    today = datetime.now().strftime("%d-%m-%Y")
-    questions = []
-
-    # ---- FORCE FRESH FETCH (cache busting) ----
-    csv_url = f"{BASE_CSV_URL}&_ts={int(time.time())}"
-
-    try:
-        response = requests.get(
-            csv_url,
-            timeout=15,
-            headers={"Cache-Control": "no-cache"},
-        )
-        response.raise_for_status()
-    except Exception:
-        await update.message.reply_text("⚠️ Unable to load quiz data.")
-        return
-
-    reader = csv.DictReader(StringIO(response.text))
-    for row in reader:
-        if row.get("date", "").strip() == today:
-            questions.append(row)
+    rows = fetch_csv(QUIZ_CSV_URL)
+    questions = [r for r in rows if r["date"].strip() == today()]
 
     if not questions:
-        await update.message.reply_text(
-            "❌ Today’s quiz is not yet uploaded.\nPlease check back later."
-        )
+        await update.message.reply_text("❌ Today’s quiz is not yet uploaded.")
         return
 
-    user_sessions[user_id] = {
+    sessions[user_id] = {
         "questions": questions,
         "index": 0,
         "score": 0,
-        "total": len(questions),
-        "explanations": [],
+        "start": time.time(),
+        "name": name,
         "active": None,
-        "timer_task": None,
+        "timer": None,
     }
-
-    await update.message.reply_text(
-        f"✅ *Quiz Ready!*\n"
-        f"📊 Questions: {len(questions)}\n"
-        f"⏱ Time per question: {QUESTION_TIME} seconds",
-        parse_mode="Markdown",
-    )
 
     await send_question(context, user_id)
 
-# ================= SEND QUESTION =================
+# ================= QUIZ FLOW =================
 
 async def send_question(context, user_id):
-    session = user_sessions.get(user_id)
-    if not session:
+    s = sessions[user_id]
+
+    if s["index"] >= len(s["questions"]):
+        await finish_quiz(context, user_id)
         return
 
-    if session["index"] >= session["total"]:
-        await send_result(context, user_id)
-        return
-
-    q = session["questions"][session["index"]]
-    q_no = session["index"] + 1
-    total = session["total"]
-
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=f"🧠 *Question {q_no} of {total}*\n⏱ {QUESTION_TIME} seconds",
-        parse_mode="Markdown",
-    )
+    q = s["questions"][s["index"]]
 
     poll = await context.bot.send_poll(
         chat_id=user_id,
         question=q["question"],
-        options=[
-            q["option_a"],
-            q["option_b"],
-            q["option_c"],
-            q["option_d"],
-        ],
+        options=[q["option_a"], q["option_b"], q["option_c"], q["option_d"]],
         type="quiz",
-        correct_option_id=ord(q["correct_option"].strip()) - ord("A"),
+        correct_option_id=ord(q["correct_option"].strip()) - 65,
+        explanation=f"{q['explanation']}\n\nSource: {q['source']}",
+        explanation_parse_mode="Markdown",
         is_anonymous=False,
         open_period=QUESTION_TIME,
     )
 
-    session["active"] = {
-        "poll_id": poll.poll.id,
-        "correct": ord(q["correct_option"].strip()) - ord("A"),
-        "explanation": q["explanation"],
-        "source": q["source"],
-    }
+    s["active"] = ord(q["correct_option"].strip()) - 65
+    s["timer"] = asyncio.create_task(timeout(context, user_id))
 
-    session["timer_task"] = asyncio.create_task(
-        handle_timeout(context, user_id)
-    )
-
-# ================= TIMEOUT HANDLER =================
-
-async def handle_timeout(context, user_id):
+async def timeout(context, user_id):
     await asyncio.sleep(QUESTION_TIME)
-
-    session = user_sessions.get(user_id)
-    if not session or not session["active"]:
+    s = sessions.get(user_id)
+    if not s or s["active"] is None:
         return
 
-    data = session["active"]
-
-    session["explanations"].append(
-        f"• {data['explanation']} (Source: {data['source']})"
-    )
-
-    session["index"] += 1
-    session["active"] = None
-
+    s["index"] += 1
+    s["active"] = None
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ================= ANSWER HANDLER =================
-
-async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
-    session = user_sessions.get(user_id)
-    if not session or not session["active"]:
+    s = sessions.get(user_id)
+    if not s or s["active"] is None:
         return
 
-    data = session["active"]
-    chosen = update.poll_answer.option_ids[0]
+    if s["timer"]:
+        s["timer"].cancel()
 
-    if session["timer_task"]:
-        session["timer_task"].cancel()
-        session["timer_task"] = None
+    if update.poll_answer.option_ids[0] == s["active"]:
+        s["score"] += 1
 
-    if chosen == data["correct"]:
-        session["score"] += 1
-
-    session["explanations"].append(
-        f"• {data['explanation']} (Source: {data['source']})"
-    )
-
-    session["index"] += 1
-    session["active"] = None
+    s["active"] = None
+    s["index"] += 1
 
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ================= FINAL RESULT =================
+# ================= RESULT + RANK =================
 
-async def send_result(context, user_id):
-    session = user_sessions.get(user_id)
-    if not session:
-        return
+async def finish_quiz(context, user_id):
+    s = sessions[user_id]
+    total = len(s["questions"])
+    time_taken = int(time.time() - s["start"])
 
-    text = (
-        f"✅ *Quiz Completed!*\n\n"
-        f"🎯 *Your Score:* {session['score']} / {session['total']}\n\n"
-        f"*📖 Explanations:*\n" +
-        "\n".join(session["explanations"])
+    # Append to leaderboard
+    append_leaderboard(s["name"], user_id, s["score"], time_taken)
+
+    rank, total_users, percentile = compute_rank(user_id)
+
+    msg = (
+        "🏁 *Quiz Finished!*\n\n"
+        f"✅ Correct: {s['score']}\n"
+        f"❌ Wrong: {total - s['score']}\n"
+        f"⏱ Time: {time_taken//60} min {time_taken%60} sec\n\n"
+        f"🏆 Rank: {rank} / {total_users}\n"
+        f"📈 You scored higher than {percentile}% of participants"
     )
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=text,
-        parse_mode="Markdown",
+    await context.bot.send_message(user_id, msg, parse_mode="Markdown")
+    del sessions[user_id]
+
+# ================= LEADERBOARD =================
+
+def append_leaderboard(name, user_id, score, time_taken):
+    # For Google Sheet via Apps Script / Form / Sheet API
+    requests.post(
+        LEADERBOARD_CSV_URL.replace("output=csv", "output=tsv"),
+        data={
+            "date": today(),
+            "user_id": user_id,
+            "name": name,
+            "score": score,
+            "time": time_taken,
+        },
+        timeout=10,
     )
 
-    del user_sessions[user_id]
+def compute_rank(user_id):
+    rows = fetch_csv(LEADERBOARD_CSV_URL)
+    today_rows = [r for r in rows if r["date"] == today()]
+
+    today_rows.sort(
+        key=lambda x: (-int(x["score"]), int(x["time"]))
+    )
+
+    total = len(today_rows)
+    for i, r in enumerate(today_rows, start=1):
+        if str(r["user_id"]) == str(user_id):
+            percentile = int(((total - i) / total) * 100)
+            return i, total, percentile
+
+    return total, total, 0
 
 # ================= MAIN =================
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("daily", daily))
-    app.add_handler(PollAnswerHandler(handle_poll_answer))
-
+    app.add_handler(PollAnswerHandler(handle_answer))
     app.run_polling()
 
 if __name__ == "__main__":
