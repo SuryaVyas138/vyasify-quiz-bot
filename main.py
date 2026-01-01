@@ -16,10 +16,12 @@ from telegram.ext import (
     CommandHandler,
     PollAnswerHandler,
     CallbackQueryHandler,
+    MessageHandler,
     ContextTypes,
+    filters,
 )
 
-# ================= TIMEZONE (IST FIX) =================
+# ================= TIMEZONE (IST) =================
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -36,13 +38,13 @@ QUIZ_CSV_URL = (
     "/pub?output=csv"
 )
 
-QUESTION_TIME = 20          # seconds per question
-TRANSITION_DELAY = 1        # smooth transition delay
+QUESTION_TIME = 20
+TRANSITION_DELAY = 1
 
 # ================= STORAGE =================
 
-sessions = {}               # user_id -> session data
-daily_scores = {}           # date -> [(user_id, score, time)]
+sessions = {}
+daily_scores = {}
 
 # ================= HELPERS =================
 
@@ -54,7 +56,7 @@ def fetch_csv(url):
 
 def compute_rank(date, user_id):
     records = daily_scores.get(date, [])
-    records.sort(key=lambda x: (-x[1], x[2]))  # score DESC, time ASC
+    records.sort(key=lambda x: (-x[1], x[2]))
 
     total = len(records)
     for i, r in enumerate(records, start=1):
@@ -63,6 +65,31 @@ def compute_rank(date, user_id):
             return i, total, percentile
 
     return total, total, 0
+
+# ================= GREETING =================
+
+async def send_greeting(context, user_id, name):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶️ Start Today’s Quiz", callback_data="start_quiz")],
+        [InlineKeyboardButton("ℹ️ How it works", callback_data="how_it_works")]
+    ])
+
+    text = (
+        f"👋 *Hello {name}!*\n\n"
+        "📘 *Welcome to Vyasify Daily Quiz*\n\n"
+        "This is a daily exam-oriented quiz designed for *UPSC & NABARD* aspirants.\n\n"
+        "📝 20 seconds per question\n"
+        "📊 Score, rank & percentile\n"
+        "📖 Detailed explanations at the end\n\n"
+        "👇 Tap a button below to continue"
+    )
+
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=text,
+        reply_markup=keyboard,
+        parse_mode="Markdown",
+    )
 
 # ================= QUIZ START =================
 
@@ -108,18 +135,38 @@ async def start_quiz(context, user_id, name):
     await asyncio.sleep(1)
     await send_question(context, user_id)
 
-# ================= COMMANDS =================
+# ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📘 *Vyasify Daily Quiz*\n\n"
-        "📝 Use /daily to start today’s quiz",
-        parse_mode="Markdown",
-    )
-
-async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    await start_quiz(context, user.id, user.first_name)
+    await send_greeting(context, user.id, user.first_name)
+
+async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await send_greeting(context, user.id, user.first_name)
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+
+    if query.data == "start_quiz":
+        await start_quiz(context, user.id, user.first_name)
+
+    elif query.data == "how_it_works":
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=(
+                "ℹ️ *How Vyasify Daily Quiz Works*\n\n"
+                "1️⃣ Tap *Start Today’s Quiz*\n"
+                "2️⃣ Answer each question within 20 seconds\n"
+                "3️⃣ Get score, rank & percentile\n"
+                "4️⃣ Review explanations at the end\n\n"
+                "🎯 One quiz per day, exam-oriented."
+            ),
+            parse_mode="Markdown",
+        )
 
 # ================= QUIZ FLOW =================
 
@@ -138,12 +185,7 @@ async def send_question(context, user_id):
     await context.bot.send_poll(
         chat_id=user_id,
         question=q["question"],
-        options=[
-            q["option_a"],
-            q["option_b"],
-            q["option_c"],
-            q["option_d"],
-        ],
+        options=[q["option_a"], q["option_b"], q["option_c"], q["option_d"]],
         type="quiz",
         correct_option_id=ord(q["correct_option"].strip()) - 65,
         explanation=f"{q['explanation']}\n\nSource: {q['source']}",
@@ -157,7 +199,6 @@ async def send_question(context, user_id):
 
 async def question_timeout(context, user_id):
     await asyncio.sleep(QUESTION_TIME + 0.5)
-
     s = sessions.get(user_id)
     if not s or not s["active"] or s["finished"]:
         return
@@ -172,7 +213,6 @@ async def question_timeout(context, user_id):
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
     s = sessions.get(user_id)
-
     if not s or not s["active"] or s["finished"]:
         return
 
@@ -181,7 +221,6 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     q = s["questions"][s["index"]]
     correct = ord(q["correct_option"].strip()) - 65
-
     if update.poll_answer.option_ids[0] == correct:
         s["score"] += 1
 
@@ -218,7 +257,7 @@ async def finish_quiz(context, user_id):
     rank, total_users, percentile = compute_rank(date, user_id)
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔁 Try Again", callback_data="retry")]
+        [InlineKeyboardButton("🔁 Try Again", callback_data="start_quiz")]
     ])
 
     msg = (
@@ -242,24 +281,15 @@ async def finish_quiz(context, user_id):
 
     del sessions[user_id]
 
-# ================= RETRY =================
-
-async def retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user = query.from_user
-    await start_quiz(context, user.id, user.first_name)
-
 # ================= MAIN =================
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("daily", daily))
+    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(PollAnswerHandler(handle_answer))
-    app.add_handler(CallbackQueryHandler(retry, pattern="retry"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_any_message))
 
     app.run_polling()
 
