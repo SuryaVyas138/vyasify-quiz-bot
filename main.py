@@ -21,8 +21,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 QUIZ_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
 
-QUESTION_TIME = 20          # seconds per question
-TRANSITION_DELAY = 1        # smooth gap between questions
+QUESTION_TIME = 20
+TRANSITION_DELAY = 1
 
 # ================= STORAGE =================
 
@@ -52,25 +52,22 @@ def compute_rank(date, user_id):
 
     return total, total, 0
 
-# ================= COMMANDS =================
+# ================= QUIZ START (REUSABLE) =================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📘 *Vyasify Daily Quiz*\n\n"
-        "📝 Use /daily to start today’s quiz",
-        parse_mode="Markdown",
-    )
-
-async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    name = update.effective_user.first_name
-
+async def start_quiz(context: ContextTypes.DEFAULT_TYPE, user_id: int, name: str):
     rows = fetch_csv(QUIZ_CSV_URL)
     questions = [r for r in rows if r["date"].strip() == today()]
 
     if not questions:
-        await update.message.reply_text("❌ Today’s quiz is not yet uploaded.")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ Today’s quiz is not yet uploaded."
+        )
         return
+
+    # Clear any old session
+    if user_id in sessions:
+        del sessions[user_id]
 
     sessions[user_id] = {
         "questions": questions,
@@ -85,17 +82,36 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     # Intro messages (guaranteed order)
-    await update.message.reply_text("📘 Daily Quiz Initialising…")
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="📘 Daily Quiz Initialising…"
+    )
     await asyncio.sleep(0.8)
 
-    await update.message.reply_text(
-        f"✅ Quiz Ready!\n\n"
-        f"🏁 Questions: {len(questions)}\n"
-        f"⏱ Time per question: {QUESTION_TIME} seconds"
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=(
+            f"✅ Quiz Ready!\n\n"
+            f"🏁 Questions: {len(questions)}\n"
+            f"⏱ Time per question: {QUESTION_TIME} seconds"
+        )
     )
 
     await asyncio.sleep(1)
     await send_question(context, user_id)
+
+# ================= COMMANDS =================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📘 *Vyasify Daily Quiz*\n\n"
+        "📝 Use /daily to start today’s quiz",
+        parse_mode="Markdown",
+    )
+
+async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await start_quiz(context, user.id, user.first_name)
 
 # ================= QUIZ FLOW =================
 
@@ -137,7 +153,6 @@ async def question_timeout(context, user_id):
     if not s or not s["active"] or s["finished"]:
         return
 
-    # time over → count as attempted
     store_explanation(s)
     s["active"] = False
     s["index"] += 1
@@ -217,17 +232,14 @@ async def finish_quiz(context, user_id):
 
     del sessions[user_id]
 
-# ================= RETRY =================
+# ================= RETRY BUTTON =================
 
 async def retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
-    if user_id in sessions:
-        del sessions[user_id]
-
-    await daily(update, context)
+    user = query.from_user
+    await start_quiz(context, user.id, user.first_name)
 
 # ================= MAIN =================
 
