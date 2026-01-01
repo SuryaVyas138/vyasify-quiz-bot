@@ -21,11 +21,13 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 QUIZ_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
 
-QUESTION_TIME = 20
-TRANSITION_DELAY = 1
+QUESTION_TIME = 20          # seconds per question
+TRANSITION_DELAY = 1        # smooth gap between questions
 
-sessions = {}
-daily_scores = {}  # date -> list of (user_id, score, time)
+# ================= STORAGE =================
+
+sessions = {}               # active quiz sessions
+daily_scores = {}           # date -> list of (user_id, score, time)
 
 # ================= HELPERS =================
 
@@ -40,7 +42,7 @@ def fetch_csv(url):
 
 def compute_rank(date, user_id):
     records = daily_scores.get(date, [])
-    records.sort(key=lambda x: (-x[1], x[2]))
+    records.sort(key=lambda x: (-x[1], x[2]))  # score desc, time asc
 
     total = len(records)
     for i, r in enumerate(records, start=1):
@@ -56,7 +58,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📘 *Vyasify Daily Quiz*\n\n"
         "📝 Use /daily to start today’s quiz",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )
 
 async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -79,8 +81,10 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "active": False,
         "timer": None,
         "finished": False,
+        "explanations": [],
     }
 
+    # Intro messages (guaranteed order)
     await update.message.reply_text("📘 Daily Quiz Initialising…")
     await asyncio.sleep(0.8)
 
@@ -119,8 +123,6 @@ async def send_question(context, user_id):
         ],
         type="quiz",
         correct_option_id=ord(q["correct_option"].strip()) - 65,
-        explanation=f"{q['explanation']}\n\nSource: {q['source']}",
-        explanation_parse_mode="Markdown",
         is_anonymous=False,
         open_period=QUESTION_TIME,
     )
@@ -135,6 +137,8 @@ async def question_timeout(context, user_id):
     if not s or not s["active"] or s["finished"]:
         return
 
+    # time over → count as attempted
+    store_explanation(s)
     s["active"] = False
     s["index"] += 1
 
@@ -157,11 +161,23 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.poll_answer.option_ids[0] == correct:
         s["score"] += 1
 
+    store_explanation(s)
     s["active"] = False
     s["index"] += 1
 
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
+
+# ================= EXPLANATION STORAGE =================
+
+def store_explanation(session):
+    q = session["questions"][session["index"]]
+    session["explanations"].append(
+        f"Q{session['index'] + 1}. {q['question']}\n"
+        f"✔ Correct: Option {q['correct_option']}\n"
+        f"Explanation: {q['explanation']}\n"
+        f"Source: {q['source']}"
+    )
 
 # ================= FINAL RESULT =================
 
@@ -187,7 +203,9 @@ async def finish_quiz(context, user_id):
         f"❌ Wrong: {total - s['score']}\n"
         f"⏱ Time: {time_taken//60} min {time_taken%60} sec\n\n"
         f"🏆 Rank: {rank} / {total_users}\n"
-        f"📈 You scored higher than {percentile}% of participants"
+        f"📈 You scored higher than {percentile}% of participants\n\n"
+        "📖 *Explanations*\n\n" +
+        "\n\n".join(s["explanations"])
     )
 
     await context.bot.send_message(
@@ -215,10 +233,12 @@ async def retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("daily", daily))
     app.add_handler(PollAnswerHandler(handle_answer))
     app.add_handler(CallbackQueryHandler(retry, pattern="retry"))
+
     app.run_polling()
 
 if __name__ == "__main__":
