@@ -1,6 +1,7 @@
 import os
 import csv
 import requests
+import asyncio
 from io import StringIO
 from datetime import datetime
 
@@ -18,7 +19,7 @@ CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pf
 
 QUESTION_TIME = 20  # seconds per question
 
-# Session store (in-memory)
+# In-memory session storage
 user_sessions = {}
 
 # ---------------- /start ----------------
@@ -41,20 +42,18 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response.raise_for_status()
     except Exception:
         await update.message.reply_text(
-            "⚠️ Unable to load quiz data right now.\nPlease try again later."
+            "⚠️ Unable to load quiz data right now."
         )
         return
 
-    f = StringIO(response.text)
-    reader = csv.DictReader(f)
-
+    reader = csv.DictReader(StringIO(response.text))
     for row in reader:
         if row.get("date", "").strip() == today:
             questions.append(row)
 
     if not questions:
         await update.message.reply_text(
-            "❌ Today’s quiz is not yet uploaded.\nPlease check back later."
+            "❌ Today’s quiz is not yet uploaded."
         )
         return
 
@@ -62,53 +61,80 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_sessions[user_id] = {
         "score": 0,
+        "current": 0,
         "total": len(questions),
-        "answered": 0,
+        "questions": questions,
         "explanations": [],
-        "poll_map": {},
+        "active": None,
     }
 
     await update.message.reply_text(
         f"📝 Daily Quiz Started\n"
         f"Questions: {len(questions)}\n"
-        f"⏱ Time per question: {QUESTION_TIME} seconds"
+        f"⏱ 20 seconds per question"
     )
 
-    for q in questions:
-        poll = await context.bot.send_poll(
-            chat_id=update.effective_chat.id,
-            question=q["question"],
-            options=[
-                q["option_a"],
-                q["option_b"],
-                q["option_c"],
-                q["option_d"],
-            ],
-            type="quiz",
-            correct_option_id=ord(q["correct_option"].strip()) - ord("A"),
-            is_anonymous=False,
-            open_period=QUESTION_TIME,  # ⏱ TIMER ENFORCED HERE
-        )
+    await send_next_question(context, user_id)
 
-        user_sessions[user_id]["poll_map"][poll.poll.id] = {
-            "correct": ord(q["correct_option"].strip()) - ord("A"),
-            "explanation": q["explanation"],
-            "source": q["source"],
-        }
+# ---------------- SEND QUESTIONS SEQUENTIALLY ----------------
+
+async def send_next_question(context, user_id):
+    session = user_sessions.get(user_id)
+    if not session:
+        return
+
+    if session["current"] >= session["total"]:
+        await send_final_result(context, user_id)
+        return
+
+    q = session["questions"][session["current"]]
+
+    poll = await context.bot.send_poll(
+        chat_id=user_id,
+        question=q["question"],
+        options=[
+            q["option_a"],
+            q["option_b"],
+            q["option_c"],
+            q["option_d"],
+        ],
+        type="quiz",
+        correct_option_id=ord(q["correct_option"].strip()) - ord("A"),
+        is_anonymous=False,
+        open_period=QUESTION_TIME,
+    )
+
+    session["active"] = {
+        "poll_id": poll.poll.id,
+        "correct": ord(q["correct_option"].strip()) - ord("A"),
+        "explanation": q["explanation"],
+        "source": q["source"],
+        "answered": False,
+    }
+
+    # Wait for timer
+    await asyncio.sleep(QUESTION_TIME + 1)
+
+    # If NOT answered → time over
+    if session["active"] and not session["active"]["answered"]:
+        session["explanations"].append(
+            f"• {q['explanation']} (Source: {q['source']})"
+        )
+        session["current"] += 1
+        session["active"] = None
+        await send_next_question(context, user_id)
 
 # ---------------- POLL ANSWER HANDLER ----------------
 
 async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
-    poll_id = update.poll_answer.poll_id
-    chosen = update.poll_answer.option_ids[0]
-
     session = user_sessions.get(user_id)
-    if not session or poll_id not in session["poll_map"]:
+    if not session or not session["active"]:
         return
 
-    data = session["poll_map"][poll_id]
-    session["answered"] += 1
+    chosen = update.poll_answer.option_ids[0]
+    data = session["active"]
+    data["answered"] = True
 
     if chosen == data["correct"]:
         session["score"] += 1
@@ -117,9 +143,10 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"• {data['explanation']} (Source: {data['source']})"
     )
 
-    # If all questions answered
-    if session["answered"] == session["total"]:
-        await send_final_result(context, user_id)
+    session["current"] += 1
+    session["active"] = None
+
+    await send_next_question(context, user_id)
 
 # ---------------- FINAL RESULT ----------------
 
