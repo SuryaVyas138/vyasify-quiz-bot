@@ -6,11 +6,12 @@ import requests
 from io import StringIO
 from datetime import datetime
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     PollAnswerHandler,
+    CallbackQueryHandler,
     ContextTypes,
 )
 
@@ -24,6 +25,7 @@ QUESTION_TIME = 20
 TRANSITION_DELAY = 1
 
 sessions = {}
+daily_scores = {}  # date -> list of (user_id, score, time)
 
 # ================= HELPERS =================
 
@@ -35,6 +37,18 @@ def fetch_csv(url):
     res = requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"})
     res.raise_for_status()
     return list(csv.DictReader(StringIO(res.content.decode("utf-8-sig"))))
+
+def compute_rank(date, user_id):
+    records = daily_scores.get(date, [])
+    records.sort(key=lambda x: (-x[1], x[2]))
+
+    total = len(records)
+    for i, r in enumerate(records, start=1):
+        if r[0] == user_id:
+            percentile = int(((total - i) / total) * 100)
+            return i, total, percentile
+
+    return total, total, 0
 
 # ================= COMMANDS =================
 
@@ -67,7 +81,6 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "finished": False,
     }
 
-    # Intro messages (forced order)
     await update.message.reply_text("📘 Daily Quiz Initialising…")
     await asyncio.sleep(0.8)
 
@@ -154,25 +167,49 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
-
     total = len(s["questions"])
     time_taken = int(time.time() - s["start"])
+    date = today()
+
+    daily_scores.setdefault(date, []).append(
+        (user_id, s["score"], time_taken)
+    )
+
+    rank, total_users, percentile = compute_rank(date, user_id)
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 Try Again", callback_data="retry")]
+    ])
 
     msg = (
         "🏁 *Quiz Finished!*\n\n"
         f"✅ Correct: {s['score']}\n"
         f"❌ Wrong: {total - s['score']}\n"
         f"⏱ Time: {time_taken//60} min {time_taken%60} sec\n\n"
-        "📊 *Ranking will be announced shortly*"
+        f"🏆 Rank: {rank} / {total_users}\n"
+        f"📈 You scored higher than {percentile}% of participants"
     )
 
     await context.bot.send_message(
         chat_id=user_id,
         text=msg,
+        reply_markup=keyboard,
         parse_mode="Markdown",
     )
 
     del sessions[user_id]
+
+# ================= RETRY =================
+
+async def retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    if user_id in sessions:
+        del sessions[user_id]
+
+    await daily(update, context)
 
 # ================= MAIN =================
 
@@ -181,6 +218,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("daily", daily))
     app.add_handler(PollAnswerHandler(handle_answer))
+    app.add_handler(CallbackQueryHandler(retry, pattern="retry"))
     app.run_polling()
 
 if __name__ == "__main__":
