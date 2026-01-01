@@ -26,17 +26,21 @@ from telegram.ext import (
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+QUIZ_RELEASE_HOUR = 17  # 5 PM IST
+
+def now_ist():
+    return datetime.now(IST)
+
 def today():
-    return datetime.now(IST).strftime("%d-%m-%Y")
+    return now_ist().strftime("%d-%m-%Y")
 
 def now_time():
-    return datetime.now(IST).strftime("%H:%M:%S")
+    return now_ist().strftime("%H:%M:%S")
 
 # ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# ✅ YOUR ADMIN ID UPDATED HERE
 ADMIN_IDS = {2053638316}
 
 OFFENSIVE_WORDS = {
@@ -55,7 +59,7 @@ TRANSITION_DELAY = 1
 # ================= STORAGE =================
 
 sessions = {}
-daily_scores = {}   # user_id → {name, score, time}
+daily_scores = {}
 blocked_logs = []
 
 # ================= HELPERS =================
@@ -69,6 +73,30 @@ def fetch_csv(url):
 def contains_offensive(text: str) -> bool:
     words = re.findall(r"\b\w+\b", text.lower())
     return any(w in OFFENSIVE_WORDS for w in words)
+
+def get_active_quiz_date(rows):
+    """
+    Decide which quiz date to serve based on time.
+    """
+    available_dates = sorted(
+        {r["date"].strip() for r in rows},
+        key=lambda d: datetime.strptime(d, "%d-%m-%Y")
+    )
+
+    if not available_dates:
+        return None
+
+    current_time = now_ist()
+
+    # Before 5 PM → serve latest available quiz BEFORE today
+    if current_time.hour < QUIZ_RELEASE_HOUR:
+        for d in reversed(available_dates):
+            if d < today():
+                return d
+        return available_dates[0]
+
+    # After 5 PM → serve today's quiz if available
+    return today() if today() in available_dates else available_dates[-1]
 
 # ================= GREETING =================
 
@@ -99,8 +127,7 @@ async def send_greeting(context, user_id, name):
 # ================= COMMAND =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await send_greeting(context, user.id, user.first_name)
+    await send_greeting(context, update.effective_user.id, update.effective_user.first_name)
 
 # ================= BUTTON HANDLER =================
 
@@ -117,10 +144,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=user.id,
             text=(
                 "ℹ️ *How It Works*\n\n"
-                "1️⃣ Start the quiz\n"
-                "2️⃣ 20 seconds per question\n"
-                "3️⃣ Auto-move on timeout\n"
-                "4️⃣ Score, rank & explanations\n"
+                "• Daily exam-style MCQs\n"
+                "• 20 seconds per question\n"
+                "• Score, rank & leaderboard\n"
+                "• Detailed explanations\n"
             ),
             parse_mode="Markdown",
         )
@@ -129,14 +156,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_quiz(context, user_id, name):
     rows = fetch_csv(QUIZ_CSV_URL)
-    questions = [r for r in rows if r["date"].strip() == today()]
+    quiz_date = get_active_quiz_date(rows)
 
-    if not questions:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="❌ Today’s quiz is not yet uploaded."
-        )
+    if not quiz_date:
+        await context.bot.send_message(chat_id=user_id, text="❌ No quiz available.")
         return
+
+    questions = [r for r in rows if r["date"].strip() == quiz_date]
 
     sessions[user_id] = {
         "questions": questions,
@@ -150,7 +176,12 @@ async def start_quiz(context, user_id, name):
         "explanations": [],
     }
 
-    await context.bot.send_message(chat_id=user_id, text="📘 Daily Quiz Starting…")
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"📘 Quiz for *{quiz_date}* starting now…",
+        parse_mode="Markdown"
+    )
+
     await asyncio.sleep(1)
     await send_question(context, user_id)
 
@@ -186,19 +217,18 @@ async def send_question(context, user_id):
 async def question_timeout(context, user_id):
     await asyncio.sleep(QUESTION_TIME + 0.5)
     s = sessions.get(user_id)
-    if not s or not s["active"] or s["finished"]:
+    if not s or not s["active"]:
         return
 
     store_explanation(s)
     s["active"] = False
     s["index"] += 1
-    await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
     s = sessions.get(user_id)
-    if not s or not s["active"] or s["finished"]:
+    if not s or not s["active"]:
         return
 
     if s["timer"]:
@@ -211,7 +241,6 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     store_explanation(s)
     s["active"] = False
     s["index"] += 1
-    await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
 # ================= EXPLANATION =================
@@ -220,21 +249,18 @@ def store_explanation(session):
     q = session["questions"][session["index"]]
     session["explanations"].append(
         f"Q{session['index']+1}. {q['question']}\n\n"
-        f"Explanation:\n{q['explanation']}\n\n"
-        f"Source: {q['source']}"
+        f"{q['explanation']}\n\nSource: {q['source']}"
     )
 
-# ================= FINAL RESULT + LEADERBOARD =================
+# ================= FINAL RESULT =================
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
-
     total = len(s["questions"])
     correct = s["score"]
 
     time_taken = int(time.time() - s["start"])
-    minutes = time_taken // 60
-    seconds = time_taken % 60
+    minutes, seconds = divmod(time_taken, 60)
 
     accuracy = int((correct / total) * 100)
 
@@ -249,31 +275,23 @@ async def finish_quiz(context, user_id):
         key=lambda x: (-x["score"], x["time"])
     )[:10]
 
-    leaderboard_text = ""
-    for i, e in enumerate(ranked, start=1):
-        m = e["time"] // 60
-        s_ = e["time"] % 60
-        leaderboard_text += f"{i}. {e['name']} — {e['score']} | {m}m {s_}s\n"
+    leaderboard = "\n".join(
+        f"{i+1}. {e['name']} — {e['score']} | {e['time']//60}m {e['time']%60}s"
+        for i, e in enumerate(ranked)
+    )
 
     await context.bot.send_message(
         chat_id=user_id,
         text=(
             "🏁 *Quiz Finished!*\n\n"
-            f"👤 Name: {s['name']}\n"
             f"✅ Correct: {correct}\n"
             f"❌ Wrong: {total - correct}\n"
             f"🎯 Accuracy: {accuracy}%\n"
-            f"⏱ Time Taken: {minutes} min {seconds} sec\n\n"
-            "🏆 *Daily Leaderboard (Top 10)*\n"
-            f"{leaderboard_text}"
+            f"⏱ Time Taken: {minutes}m {seconds}s\n\n"
+            "🏆 *Daily Leaderboard*\n"
+            f"{leaderboard}"
         ),
-        parse_mode="Markdown",
-    )
-
-    await context.bot.send_message(
-        chat_id=user_id,
-        text="📖 *Explanations*\n\n" + "\n\n".join(s["explanations"]),
-        parse_mode="Markdown",
+        parse_mode="Markdown"
     )
 
     del sessions[user_id]
@@ -281,30 +299,12 @@ async def finish_quiz(context, user_id):
 # ================= MESSAGE HANDLER =================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
     text = update.message.text
 
-    # Admin → allow free text
-    if user.id in ADMIN_IDS:
-        return
-
-    # Block offensive language
     if contains_offensive(text):
-        blocked_logs.append({
-            "date": today(),
-            "time": now_time(),
-            "user_id": user.id,
-            "name": user.first_name,
-            "username": user.username,
-            "message": text,
-        })
         await update.message.reply_text(
-            "❌ Please maintain respectful language.\nUse /start to continue."
+            "❌ Please maintain respectful language."
         )
-        return
-
-    # Normal student text → greeting
-    await send_greeting(context, user.id, user.first_name)
 
 # ================= MAIN =================
 
