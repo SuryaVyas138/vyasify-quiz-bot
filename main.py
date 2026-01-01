@@ -37,12 +37,14 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if row["date"] == today:
             questions.append(row)
 
-    if len(questions) < 10:
-        await update.message.reply_text(
-            "❌ Today’s quiz is not yet fully uploaded.\n"
-            "Please check back later."
-        )
-        return
+    if len(questions) == 0:
+    await update.message.reply_text(
+        "❌ Today’s quiz is not yet uploaded.\n"
+        "Please check back later."
+    )
+    return
+
+# Use ALL available questions for today
 
     # Strictly first 10 questions
     questions = questions[:10]
