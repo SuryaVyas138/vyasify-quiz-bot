@@ -36,8 +36,8 @@ def now_time():
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# 🔴 REPLACE with your Telegram user ID(s)
-ADMIN_IDS = {123456789}
+# ✅ YOUR ADMIN ID UPDATED HERE
+ADMIN_IDS = {2053638316}
 
 OFFENSIVE_WORDS = {
     "fuck", "shit", "bitch", "asshole", "idiot", "stupid"
@@ -284,9 +284,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text
 
+    # Admin → allow free text
     if user.id in ADMIN_IDS:
         return
 
+    # Block offensive language
     if contains_offensive(text):
         blocked_logs.append({
             "date": today(),
@@ -301,6 +303,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Normal student text → greeting
     await send_greeting(context, user.id, user.first_name)
 
 # ================= MAIN =================
