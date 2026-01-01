@@ -17,15 +17,15 @@ from telegram.ext import (
 # ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+
 QUIZ_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
-LEADERBOARD_CSV_URL = os.environ.get("LEADERBOARD_CSV_URL")
 
 QUESTION_TIME = 20
 TRANSITION_DELAY = 1
 
 sessions = {}
 
-# ================= UTIL =================
+# ================= HELPERS =================
 
 def today():
     return datetime.now().strftime("%d-%m-%Y")
@@ -62,27 +62,48 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "score": 0,
         "start": time.time(),
         "name": name,
-        "active": None,
+        "active": False,
         "timer": None,
+        "finished": False,
     }
 
+    # Intro messages (forced order)
+    await update.message.reply_text("📘 Daily Quiz Initialising…")
+    await asyncio.sleep(0.8)
+
+    await update.message.reply_text(
+        f"✅ Quiz Ready!\n\n"
+        f"🏁 Questions: {len(questions)}\n"
+        f"⏱ Time per question: {QUESTION_TIME} seconds"
+    )
+
+    await asyncio.sleep(1)
     await send_question(context, user_id)
 
 # ================= QUIZ FLOW =================
 
 async def send_question(context, user_id):
-    s = sessions[user_id]
+    s = sessions.get(user_id)
+
+    if not s or s["finished"]:
+        return
 
     if s["index"] >= len(s["questions"]):
+        s["finished"] = True
         await finish_quiz(context, user_id)
         return
 
     q = s["questions"][s["index"]]
 
-    poll = await context.bot.send_poll(
+    await context.bot.send_poll(
         chat_id=user_id,
         question=q["question"],
-        options=[q["option_a"], q["option_b"], q["option_c"], q["option_d"]],
+        options=[
+            q["option_a"],
+            q["option_b"],
+            q["option_c"],
+            q["option_d"],
+        ],
         type="quiz",
         correct_option_id=ord(q["correct_option"].strip()) - 65,
         explanation=f"{q['explanation']}\n\nSource: {q['source']}",
@@ -91,93 +112,67 @@ async def send_question(context, user_id):
         open_period=QUESTION_TIME,
     )
 
-    s["active"] = ord(q["correct_option"].strip()) - 65
-    s["timer"] = asyncio.create_task(timeout(context, user_id))
+    s["active"] = True
+    s["timer"] = asyncio.create_task(question_timeout(context, user_id))
 
-async def timeout(context, user_id):
-    await asyncio.sleep(QUESTION_TIME)
+async def question_timeout(context, user_id):
+    await asyncio.sleep(QUESTION_TIME + 0.5)
+
     s = sessions.get(user_id)
-    if not s or s["active"] is None:
+    if not s or not s["active"] or s["finished"]:
         return
 
+    s["active"] = False
     s["index"] += 1
-    s["active"] = None
+
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.poll_answer.user.id
     s = sessions.get(user_id)
-    if not s or s["active"] is None:
+
+    if not s or not s["active"] or s["finished"]:
         return
 
     if s["timer"]:
         s["timer"].cancel()
 
-    if update.poll_answer.option_ids[0] == s["active"]:
+    q = s["questions"][s["index"]]
+    correct = ord(q["correct_option"].strip()) - 65
+
+    if update.poll_answer.option_ids[0] == correct:
         s["score"] += 1
 
-    s["active"] = None
+    s["active"] = False
     s["index"] += 1
 
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ================= RESULT + RANK =================
+# ================= FINAL RESULT =================
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
+
     total = len(s["questions"])
     time_taken = int(time.time() - s["start"])
-
-    # Append to leaderboard
-    append_leaderboard(s["name"], user_id, s["score"], time_taken)
-
-    rank, total_users, percentile = compute_rank(user_id)
 
     msg = (
         "🏁 *Quiz Finished!*\n\n"
         f"✅ Correct: {s['score']}\n"
         f"❌ Wrong: {total - s['score']}\n"
         f"⏱ Time: {time_taken//60} min {time_taken%60} sec\n\n"
-        f"🏆 Rank: {rank} / {total_users}\n"
-        f"📈 You scored higher than {percentile}% of participants"
+        "📊 *Ranking will be announced shortly*"
     )
 
-    await context.bot.send_message(user_id, msg, parse_mode="Markdown")
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=msg,
+        parse_mode="Markdown",
+    )
+
     del sessions[user_id]
-
-# ================= LEADERBOARD =================
-
-def append_leaderboard(name, user_id, score, time_taken):
-    # For Google Sheet via Apps Script / Form / Sheet API
-    requests.post(
-        LEADERBOARD_CSV_URL.replace("output=csv", "output=tsv"),
-        data={
-            "date": today(),
-            "user_id": user_id,
-            "name": name,
-            "score": score,
-            "time": time_taken,
-        },
-        timeout=10,
-    )
-
-def compute_rank(user_id):
-    rows = fetch_csv(LEADERBOARD_CSV_URL)
-    today_rows = [r for r in rows if r["date"] == today()]
-
-    today_rows.sort(
-        key=lambda x: (-int(x["score"]), int(x["time"]))
-    )
-
-    total = len(today_rows)
-    for i, r in enumerate(today_rows, start=1):
-        if str(r["user_id"]) == str(user_id):
-            percentile = int(((total - i) / total) * 100)
-            return i, total, percentile
-
-    return total, total, 0
 
 # ================= MAIN =================
 
