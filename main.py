@@ -54,7 +54,7 @@ TRANSITION_DELAY = 1
 # ================= STORAGE =================
 
 sessions = {}
-daily_scores = {}
+daily_scores = {}   # user_id → {name, score, time}
 blocked_logs = []
 
 # ================= HELPERS =================
@@ -80,11 +80,10 @@ async def send_greeting(context, user_id, name):
     text = (
         f"👋 *Hello {name}!*\n\n"
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a daily exam-oriented quiz designed for *UPSC, SSC, and Regulatory Body Exams* aspirants.\n\n"
         "📝 20 seconds per question\n"
-        "📊 Score & percentile\n"
+        "📊 Score, time & leaderboard\n"
         "📖 Detailed explanations at the end\n\n"
-        "👇 Tap a button below to continue"
+        "👇 Tap below to continue"
     )
 
     await context.bot.send_message(
@@ -114,12 +113,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=user.id,
             text=(
-                "ℹ️ *How Vyasify Daily Quiz Works*\n\n"
-                "1️⃣ Tap *Start Today’s Quiz*\n"
-                "2️⃣ Answer each question within 20 seconds\n"
-                "3️⃣ Get score & percentile\n"
-                "4️⃣ Review explanations at the end\n\n"
-                "🎯 Learning-focused daily practice."
+                "ℹ️ *How It Works*\n\n"
+                "1️⃣ Start the quiz\n"
+                "2️⃣ 20 sec per question\n"
+                "3️⃣ Auto-move on timeout\n"
+                "4️⃣ Result + leaderboard\n"
             ),
             parse_mode="Markdown",
         )
@@ -149,7 +147,7 @@ async def start_quiz(context, user_id, name):
         "explanations": [],
     }
 
-    await context.bot.send_message(chat_id=user_id, text="📘 Daily Quiz Initialising…")
+    await context.bot.send_message(chat_id=user_id, text="📘 Daily Quiz Starting…")
     await asyncio.sleep(1)
     await send_question(context, user_id)
 
@@ -223,21 +221,50 @@ def store_explanation(session):
         f"Source: {q['source']}"
     )
 
-# ================= FINAL RESULT =================
+# ================= FINAL RESULT + LEADERBOARD =================
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
+
     total = len(s["questions"])
     correct = s["score"]
-    percentile = int((correct / total) * 100)
+
+    time_taken = int(time.time() - s["start"])
+    minutes = time_taken // 60
+    seconds = time_taken % 60
+
+    accuracy = int((correct / total) * 100)
+
+    # Store daily score
+    daily_scores[user_id] = {
+        "name": s["name"],
+        "score": correct,
+        "time": time_taken
+    }
+
+    # Leaderboard (score ↓, time ↑)
+    ranked = sorted(
+        daily_scores.values(),
+        key=lambda x: (-x["score"], x["time"])
+    )[:10]
+
+    leaderboard_text = ""
+    for i, e in enumerate(ranked, start=1):
+        m = e["time"] // 60
+        s_ = e["time"] % 60
+        leaderboard_text += f"{i}. {e['name']} — {e['score']} | {m}m {s_}s\n"
 
     await context.bot.send_message(
         chat_id=user_id,
         text=(
             "🏁 *Quiz Finished!*\n\n"
+            f"👤 Name: {s['name']}\n"
             f"✅ Correct: {correct}\n"
             f"❌ Wrong: {total - correct}\n"
-            f"🎯 Accuracy: {percentile}%"
+            f"🎯 Accuracy: {accuracy}%\n"
+            f"⏱ Time Taken: {minutes} min {seconds} sec\n\n"
+            "🏆 *Daily Leaderboard (Top 10)*\n"
+            f"{leaderboard_text}"
         ),
         parse_mode="Markdown",
     )
@@ -256,11 +283,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text
 
-    # Admin → allow everything
     if user.id in ADMIN_IDS:
         return
 
-    # Offensive → block + log
     if contains_offensive(text):
         blocked_logs.append({
             "date": today(),
@@ -271,12 +296,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "message": text,
         })
         await update.message.reply_text(
-            "❌ Please maintain respectful language.\n"
-            "Use /start or buttons to continue."
+            "❌ Please maintain respectful language.\nUse /start to continue."
         )
         return
 
-    # Normal text → greeting
     await send_greeting(context, user.id, user.first_name)
 
 # ================= MAIN =================
