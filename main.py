@@ -52,7 +52,7 @@ QUIZ_CSV_URL = (
 )
 
 QUESTION_TIME = 20
-TRANSITION_DELAY = 1  # smooth
+TRANSITION_DELAY = 1
 
 # ================= STORAGE =================
 
@@ -98,11 +98,12 @@ async def send_greeting(context, user_id, name):
 
     text = (
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
+        "This is a *daily exam-oriented quiz* designed for:\n"
         "🎯 *UPSC | SSC | Regulatory Body Exams*\n\n"
-        "📝 20 seconds per question\n"
-        "📊 Score, Rank & Percentile\n"
-        "📖 Detailed explanations at the end\n\n"
-        "👇 *Tap below to begin*"
+        "📝 *20 seconds per question*\n"
+        "📊 *Score, Rank & Percentile*\n"
+        "📖 *Detailed explanations at the end*\n\n"
+        "👇 *Tap below to start the quiz*"
     )
 
     await context.bot.send_message(
@@ -115,7 +116,11 @@ async def send_greeting(context, user_id, name):
 # ================= COMMAND =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_greeting(context, update.effective_user.id, update.effective_user.first_name)
+    await send_greeting(
+        context,
+        update.effective_user.id,
+        update.effective_user.first_name
+    )
 
 # ================= BUTTON HANDLER =================
 
@@ -130,7 +135,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "how_it_works":
         await context.bot.send_message(
             chat_id=user.id,
-            text="ℹ️ Daily exam-style quiz with leaderboard & explanations.",
+            text="ℹ️ Daily exam-style MCQs with timer, leaderboard & explanations.",
             parse_mode="Markdown",
         )
 
@@ -173,7 +178,6 @@ async def start_quiz(context, user_id, name):
 
     await asyncio.sleep(1)
     await msg.delete()
-
     await send_question(context, user_id)
 
 # ================= QUIZ FLOW =================
@@ -274,20 +278,23 @@ async def finish_quiz(context, user_id):
 # ================= TEXT HANDLER =================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     text = update.message.text.strip()
 
     if contains_offensive(text):
         blocked_logs.append({
             "date": today(),
             "time": now_time(),
-            "user_id": update.effective_user.id,
+            "user_id": user.id,
             "message": text,
         })
         await update.message.reply_text(
             "❌ Please maintain respectful language."
         )
-    else:
-        await update.message.reply_text("👍 Noted.")
+        return
+
+    # ✅ ANY non-offensive text → show greeting + start quiz option
+    await send_greeting(context, user.id, user.first_name)
 
 # ================= MAIN =================
 
