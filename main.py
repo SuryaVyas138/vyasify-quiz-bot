@@ -226,11 +226,11 @@ async def start_quiz(context, user_id, name):
 
     msg = await context.bot.send_message(
         chat_id=user_id,
-        text=f"{header}\n\n⏳ Starting in *3️⃣…*",
+        text=f"{header}\n\n⏳ Starting in *3️⃣...*",
         parse_mode="Markdown"
     )
 
-    for n in ["2️⃣…", "1️⃣…"]:
+    for n in ["2️⃣..", "1️⃣..."]:
         await asyncio.sleep(1)
         await msg.edit_text(
             f"{header}\n\n⏳ Starting in *{n}*",
@@ -316,7 +316,7 @@ def store_explanation(session):
     q = session["questions"][session["index"]]
     session["explanations"].append(
         f"Q{session['index'] + 1}. {q['question']}\n"
-        f"🔹 *Explanation:*:\n{q['explanation']}"
+        f"🔹 *Explanation*:\n{q['explanation']}"
         
 )
 
