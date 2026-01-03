@@ -112,11 +112,11 @@ async def send_greeting(context, user_id, name):
 
     text = (
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a focused daily practice platform for aspirants of🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
+        "This is a focused daily practice platform for aspirants of 🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
         "🔹 *Daily 10 questions* strictly aligned to *UPSC Prelims-oriented topics*\n\n"
-        "📝 Correct Answer: 2 Marks\n"
-        "📝 Negative Marking: -1/3 Marks\n"
-        "📝 Skipped: 0 Marks\n\n"
+        "✅ Correct Answer: 2 Marks\n"
+        "❌ Negative Marking: -1/3 Marks\n"
+        "🚫 Skipped: 0 Marks\n\n"
         "📝 Timed questions to build exam temperament\n"
         "📊 Score, Rank & Percentile for self-benchmarking\n"
         "📖 Simple explanations for concept clarity\n\n"
@@ -188,11 +188,11 @@ async def start_quiz(context, user_id, name):
 
     msg = await context.bot.send_message(
         chat_id=user_id,
-        text=f"{header}\n\n⏳ Starting in *3️⃣…*",
+        text=f"{header}\n\n⏳ Starting in *3️⃣...*",
         parse_mode="Markdown"
     )
 
-    for n in ["2️⃣…", "1️⃣…"]:
+    for n in ["2️⃣..", "1️⃣..."]:
         await asyncio.sleep(1)
         await msg.edit_text(
             f"{header}\n\n⏳ Starting in *{n}*",
@@ -266,7 +266,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     s["explanations"].append(
         f"Q{s['index'] + 1}. {q['question']}\n"
-        f"🔹 Explanation: {q['explanation']}"
+        f"*📘Explanation:* {q['explanation']}"
     )
 
     await advance_question(context, update.poll_answer.user.id)
