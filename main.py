@@ -315,9 +315,11 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def store_explanation(session):
     q = session["questions"][session["index"]]
     session["explanations"].append(
-        f"Q{session['index'] + 1}. {q['question']}\n\n"
-        f"Explanation:\n{q['explanation']}"
-    )
+        f"Q{session['index'] + 1}. {q['question']}\n"
+        f"🔹 *Explanation:*:\n{q['explanation']}"
+        
+)
+
 
 # ================= FINAL RESULT =================
 
