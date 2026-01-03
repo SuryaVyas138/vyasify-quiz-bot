@@ -25,7 +25,7 @@ from telegram.ext import (
 # ================= TIMEZONE =================
 
 IST = timezone(timedelta(hours=5, minutes=30))
-QUIZ_RELEASE_HOUR = 17  # 5 PM IST
+QUIZ_RELEASE_HOUR = 17
 
 def now_ist():
     return datetime.now(IST)
@@ -146,8 +146,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= QUIZ =================
 
 async def start_quiz(context, user_id, name):
-    global current_quiz_date_key, daily_scores
-
     rows = normalize_sheet_rows(fetch_csv(QUIZ_CSV_URL))
     quiz_date = get_active_quiz_date(rows)
 
@@ -155,16 +153,12 @@ async def start_quiz(context, user_id, name):
         await context.bot.send_message(chat_id=user_id, text="❌ Today’s quiz is not yet available.")
         return
 
-    quiz_date_key = quiz_date.isoformat()
-    if quiz_date_key != current_quiz_date_key:
-        daily_scores.clear()
-        current_quiz_date_key = quiz_date_key
-
     questions = [r for r in rows if r["_date_obj"] == quiz_date]
 
     sessions[user_id] = {
         "questions": questions,
         "index": 0,
+        "current_q_index": 0,
         "score": 0,
         "attempted": 0,
         "wrong": 0,
@@ -172,6 +166,7 @@ async def start_quiz(context, user_id, name):
         "start": time.time(),
         "transitioned": False,
         "poll_message_id": None,
+        "timer": None,
     }
 
     await send_question(context, user_id)
@@ -184,6 +179,8 @@ async def send_question(context, user_id):
         return
 
     q = s["questions"][s["index"]]
+    s["current_q_index"] = s["index"]
+    s["transitioned"] = False
 
     poll = await context.bot.send_poll(
         chat_id=user_id,
@@ -196,13 +193,16 @@ async def send_question(context, user_id):
     )
 
     s["poll_message_id"] = poll.message_id
-    s["transitioned"] = False
-    asyncio.create_task(question_timeout(context, user_id, q["_time_limit"]))
+    s["timer"] = asyncio.create_task(question_timeout(context, user_id, s["index"], q["_time_limit"]))
 
-async def question_timeout(context, user_id, t):
+async def question_timeout(context, user_id, q_index, t):
     await asyncio.sleep(t)
     s = sessions.get(user_id)
+
     if not s or s["transitioned"]:
+        return
+
+    if s["current_q_index"] != q_index:
         return
 
     try:
@@ -216,6 +216,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = sessions.get(update.poll_answer.user.id)
     if not s or s["transitioned"]:
         return
+
+    if s["timer"]:
+        s["timer"].cancel()
 
     q = s["questions"][s["index"]]
     s["attempted"] += 1
@@ -231,6 +234,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def advance_question(context, user_id):
     s = sessions[user_id]
+    if s["transitioned"]:
+        return
+
     s["transitioned"] = True
     s["index"] += 1
     await asyncio.sleep(TRANSITION_DELAY)
