@@ -316,7 +316,7 @@ def store_explanation(session):
     q = session["questions"][session["index"]]
     session["explanations"].append(
         f"Q{session['index'] + 1}. {q['question']}\n"
-        f"🔹 *Explanation*:\n{q['explanation']}"
+        f"📘*Explanation*:\n{q['explanation']}"
         
 )
 
