@@ -188,7 +188,7 @@ async def start_quiz(context, user_id, name):
     if not quiz_date:
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Today’s quiz is not yet available. It will be uploaded soon. ThankYou for choosing Vyasify Quiz!"
+            text="❌ Today’s quiz is not yet available."
         )
         return
 
@@ -214,7 +214,7 @@ async def start_quiz(context, user_id, name):
         "start": time.time(),
         "name": name,
         "active": False,
-        "transitioned": False,   # 🔑 SINGLE-ADVANCE GUARD
+        "transitioned": False,
         "timer": None,
         "finished": False,
         "explanations": [],
@@ -317,9 +317,7 @@ def store_explanation(session):
     session["explanations"].append(
         f"Q{session['index'] + 1}. {q['question']}\n"
         f"📘*Explanation*:\n{q['explanation']}"
-        
-)
-
+    )
 
 # ================= FINAL RESULT =================
 
@@ -329,11 +327,13 @@ async def finish_quiz(context, user_id):
     correct = s["score"]
     time_taken = int(time.time() - s["start"])
 
-    daily_scores[user_id] = {
-        "name": s["name"],
-        "score": correct,
-        "time": time_taken
-    }
+    # 🔒 FIX: Leaderboard locked at FIRST attempt only
+    if user_id not in daily_scores:
+        daily_scores[user_id] = {
+            "name": s["name"],
+            "score": correct,
+            "time": time_taken
+        }
 
     ranked = sorted(
         daily_scores.values(),
