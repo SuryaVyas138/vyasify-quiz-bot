@@ -197,7 +197,7 @@ async def start_quiz(context, user_id, name):
     if not quiz_date:
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Today’s quiz is not yet available."
+            text="❌ Today’s quiz is not yet available. It will be updated soon! Thankyou for using Vyasify Daily Quiz"
         )
         return
 
@@ -221,19 +221,24 @@ async def start_quiz(context, user_id, name):
         "explanations": [],
     }
 
-    msg = await context.bot.send_message(
-        chat_id=user_id,
-        text=f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*\n\n⏳ Starting in *3️⃣*",
+header = f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*"
+if quiz_topic:
+    header += f"\n🧠 *Topic:* {quiz_topic}"
+
+msg = await context.bot.send_message(
+    chat_id=user_id,
+    text=f"{header}\n\n⏳ Starting in *3️⃣...*",
+    parse_mode="Markdown"
+)
+
+for n in ["2️⃣...", "1️⃣..."]:
+    await asyncio.sleep(1)
+    await msg.edit_text(
+        f"{header}\n\n⏳ Starting in *{n}*",
         parse_mode="Markdown"
     )
 
-    for n in ["2️⃣", "1️⃣"]:
-        await asyncio.sleep(1)
-        await msg.edit_text(
-            f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*\n\n⏳ Starting in *{n}*",
-            parse_mode="Markdown"
-        )
-
+    
     await asyncio.sleep(1)
     await msg.delete()
     await send_question(context, user_id)
