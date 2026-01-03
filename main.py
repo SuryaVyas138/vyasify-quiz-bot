@@ -358,7 +358,7 @@ async def finish_quiz(context, user_id):
 
     await context.bot.send_message(
         chat_id=user_id,
-        text="📖 *Simple Explanations*\n\n" + "\n\n".join(s["explanations"]),
+        text="📖 *Simple Explanations*\n\n" + "\n".join(s["explanations"]),
         parse_mode="Markdown"
     )
 
