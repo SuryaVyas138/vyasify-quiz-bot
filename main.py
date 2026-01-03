@@ -52,7 +52,7 @@ QUIZ_CSV_URL = (
     "/pub?output=csv"
 )
 
-QUESTION_TIME = 20
+DEFAULT_QUESTION_TIME = 20  # seconds
 TRANSITION_DELAY = 1
 
 # ================= STATE =================
@@ -74,13 +74,9 @@ def contains_offensive(text: str) -> bool:
     words = re.findall(r"\b\w+\b", text.lower())
     return any(w in OFFENSIVE_WORDS for w in words)
 
-# --------- CRITICAL: DATE NORMALISATION ---------
+# --------- DATE NORMALISATION ---------
 
 def normalize_sheet_rows(rows):
-    """
-    Parses date ONCE and attaches canonical date object to each row.
-    Safely supports DD-MM-YYYY and MM-DD-YYYY.
-    """
     normalized = []
 
     for r in rows:
@@ -91,36 +87,39 @@ def normalize_sheet_rows(rows):
         raw = raw.strip()
         parsed = None
 
-        # Indian priority first
         try:
             parsed = datetime.strptime(raw, "%d-%m-%Y")
         except ValueError:
             try:
                 parsed = datetime.strptime(raw, "%m-%d-%Y")
             except ValueError:
-                continue  # skip invalid rows safely
+                continue
 
         r["_date_obj"] = parsed.date()
+
+        # ---- NEW: per-question time (seconds) ----
+        try:
+            r["_time_limit"] = int(r.get("time", DEFAULT_QUESTION_TIME))
+            if r["_time_limit"] <= 0:
+                raise ValueError
+        except Exception:
+            r["_time_limit"] = DEFAULT_QUESTION_TIME
+
         normalized.append(r)
 
     return normalized
 
 def get_active_quiz_date(rows):
-    """
-    Returns a date object (not string) for the active quiz.
-    """
     today = today_date()
     available_dates = sorted({r["_date_obj"] for r in rows})
 
     if not available_dates:
         return None
 
-    # Before 5 PM → latest past or today
     if now_ist().hour < QUIZ_RELEASE_HOUR:
         valid = [d for d in available_dates if d <= today]
         return valid[-1] if valid else None
 
-    # After 5 PM → today only
     return today if today in available_dates else None
 
 # ================= GREETING =================
@@ -136,7 +135,7 @@ async def send_greeting(context, user_id, name):
         "A focused daily practice platform for aspirants of  \n"
         "🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
         "What you get in every quiz:\n"
-        "📝 *20 seconds per question* — build speed and precision  \n"
+        "📝 *Timed questions* — build speed and precision  \n"
         "📊 *Score, Rank & Percentile* — benchmark your preparation  \n"
         "📖 *Detailed explanations* — strengthen concepts, not guesses\n\n"
         "Practice daily and improve accuracy.  \n"
@@ -175,14 +174,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=user.id,
             text=(
                 "ℹ️ *How the Daily Quiz Works*\n\n"
-                "This is a time-bound daily quiz designed to support "
-                "exam-focused preparation.\n\n"
-                "Each attempt includes:\n"
-                "• A fixed time per question to build speed\n"
-                "• Performance-based ranking for self-evaluation\n"
-                "• Detailed explanations to strengthen concepts\n\n"
-                "Use the quiz to track accuracy, improve speed, "
-                "and identify areas for improvement."
+                "Each question is time-bound.\n"
+                "Time may vary by question based on difficulty.\n\n"
+                "• Answer within the given time\n"
+                "• Performance is ranked\n"
+                "• Detailed explanations follow\n\n"
+                "Designed for exam-focused preparation."
             ),
             parse_mode="Markdown",
         )
@@ -254,6 +251,7 @@ async def send_question(context, user_id):
         return
 
     q = s["questions"][s["index"]]
+    time_limit = q.get("_time_limit", DEFAULT_QUESTION_TIME)
 
     await context.bot.send_poll(
         chat_id=user_id,
@@ -264,14 +262,14 @@ async def send_question(context, user_id):
         explanation=f"{q['explanation']}\n\nSource: {q['source']}",
         explanation_parse_mode="Markdown",
         is_anonymous=False,
-        open_period=QUESTION_TIME,
+        open_period=time_limit,
     )
 
     s["active"] = True
-    s["timer"] = asyncio.create_task(question_timeout(context, user_id))
+    s["timer"] = asyncio.create_task(question_timeout(context, user_id, time_limit))
 
-async def question_timeout(context, user_id):
-    await asyncio.sleep(QUESTION_TIME)
+async def question_timeout(context, user_id, time_limit):
+    await asyncio.sleep(time_limit)
     s = sessions.get(user_id)
     if not s or not s["active"]:
         return
