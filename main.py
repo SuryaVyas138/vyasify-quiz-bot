@@ -128,8 +128,7 @@ async def send_greeting(context, user_id, name):
 
     text = (
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a focused daily practice platform for aspirants of:\n"
-        "🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
+        "This is a focused daily practice platform for aspirants of 🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
         "🔹 *Daily 10 questions* strictly aligned to *UPSC Prelims-oriented topics*\n\n"
         "📝 Timed questions to build exam temperament\n"
         "📊 Score, Rank & Percentile for self-benchmarking\n"
@@ -188,7 +187,7 @@ async def start_quiz(context, user_id, name):
     if not quiz_date:
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Today’s quiz is not yet available."
+            text="❌ Today’s quiz is not yet available. It will be updated soon. ThankYou for choosing Vyasify Daily Quiz!"
         )
         return
 
