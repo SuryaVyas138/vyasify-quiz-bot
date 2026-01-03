@@ -33,9 +33,6 @@ def now_ist():
 def today_date():
     return now_ist().date()
 
-def today_str():
-    return today_date().strftime("%d-%m-%Y")
-
 # ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -55,11 +52,14 @@ QUIZ_CSV_URL = (
 DEFAULT_QUESTION_TIME = 20
 TRANSITION_DELAY = 1
 
+# 🔹 MARKING DEFAULTS (UPSC STYLE)
+DEFAULT_MARKS_PER_QUESTION = 2
+DEFAULT_NEGATIVE_RATIO = 1 / 3
+
 # ================= STATE =================
 
 sessions = {}
 daily_scores = {}
-blocked_logs = []
 current_quiz_date_key = None
 
 # ================= HELPERS =================
@@ -74,7 +74,7 @@ def contains_offensive(text: str) -> bool:
     words = re.findall(r"\b\w+\b", text.lower())
     return any(w in OFFENSIVE_WORDS for w in words)
 
-# --------- DATE & TIME NORMALISATION ---------
+# --------- DATE NORMALISATION ---------
 
 def normalize_sheet_rows(rows):
     normalized = []
@@ -128,7 +128,8 @@ async def send_greeting(context, user_id, name):
 
     text = (
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a focused daily practice platform for aspirants of: 🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
+        "This is a focused daily practice platform for aspirants of:\n"
+        "🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
         "🔹 *Daily 10 questions* strictly aligned to *UPSC Prelims-oriented topics*\n\n"
         "📝 Timed questions to build exam temperament\n"
         "📊 Score, Rank & Percentile for self-benchmarking\n"
@@ -187,7 +188,7 @@ async def start_quiz(context, user_id, name):
     if not quiz_date:
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Today’s quiz is not yet available. It will be uploaded soon. ThankYou for choosing Vyasify Quiz!"
+            text="❌ Today’s quiz is not yet available."
         )
         return
 
@@ -209,7 +210,11 @@ async def start_quiz(context, user_id, name):
     sessions[user_id] = {
         "questions": questions,
         "index": 0,
-        "score": 0,
+        "score": 0,      # leaderboard score (correct count)
+        "attempted": 0,
+        "wrong": 0,
+        "skipped": 0,
+        "marks": 0.0,
         "start": time.time(),
         "name": name,
         "active": False,
@@ -263,7 +268,7 @@ async def send_question(context, user_id):
         question=q["question"],
         options=[q["option_a"], q["option_b"], q["option_c"], q["option_d"]],
         type="quiz",
-        correct_option_id=ord(q["correct_option"].strip()) - 65,
+        correct_option_id=ord(q["correct_option"].strip().upper()) - 65,
         explanation=q["explanation"],
         is_anonymous=False,
         open_period=t,
@@ -289,6 +294,7 @@ async def question_timeout(context, user_id, t):
     if not s or s["transitioned"]:
         return
 
+    s["skipped"] += 1
     store_explanation(s)
     await advance_question(context, user_id)
 
@@ -299,8 +305,18 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     q = s["questions"][s["index"]]
-    if update.poll_answer.option_ids[0] == ord(q["correct_option"].strip()) - 65:
+
+    s["attempted"] += 1
+
+    marks = float(q.get("marks", DEFAULT_MARKS_PER_QUESTION))
+    negative = float(q.get("negative_ratio", DEFAULT_NEGATIVE_RATIO)) * marks
+
+    if update.poll_answer.option_ids[0] == ord(q["correct_option"].strip().upper()) - 65:
         s["score"] += 1
+        s["marks"] += marks
+    else:
+        s["wrong"] += 1
+        s["marks"] -= negative
 
     store_explanation(s)
 
@@ -326,7 +342,7 @@ async def finish_quiz(context, user_id):
     correct = s["score"]
     time_taken = int(time.time() - s["start"])
 
-    # 🔒 FIX: Leaderboard locked at FIRST attempt only
+    # 🔒 Leaderboard fixed at FIRST attempt
     if user_id not in daily_scores:
         daily_scores[user_id] = {
             "name": s["name"],
@@ -348,8 +364,11 @@ async def finish_quiz(context, user_id):
         chat_id=user_id,
         text=(
             "🏁 *Quiz Finished!*\n\n"
+            f"📝 Total Attempted: {s['attempted']}\n"
             f"✅ Correct: {correct}\n"
-            f"❌ Wrong: {total - correct}\n"
+            f"❌ Wrong: {s['wrong']}\n"
+            f"⏭ Skipped: {s['skipped']}\n"
+            f"🎯 Total Marks: {round(s['marks'], 2)}\n\n"
             f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
             "🏆 *Daily Leaderboard (Top 10)*\n"
             f"{leaderboard}"
