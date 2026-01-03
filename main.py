@@ -42,9 +42,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 ADMIN_IDS = {2053638316}
 
-OFFENSIVE_WORDS = {
-    "fuck", "shit", "bitch", "asshole", "idiot", "stupid"
-}
+OFFENSIVE_WORDS = {"fuck", "shit", "bitch", "asshole", "idiot", "stupid"}
 
 QUIZ_CSV_URL = (
     "https://docs.google.com/spreadsheets/d/e/"
@@ -52,7 +50,7 @@ QUIZ_CSV_URL = (
     "/pub?output=csv"
 )
 
-DEFAULT_QUESTION_TIME = 20  # seconds
+DEFAULT_QUESTION_TIME = 20
 TRANSITION_DELAY = 1
 
 # ================= STATE =================
@@ -60,7 +58,7 @@ TRANSITION_DELAY = 1
 sessions = {}
 daily_scores = {}
 blocked_logs = []
-current_quiz_date_key = None  # ISO string YYYY-MM-DD
+current_quiz_date_key = None
 
 # ================= HELPERS =================
 
@@ -74,19 +72,14 @@ def contains_offensive(text: str) -> bool:
     words = re.findall(r"\b\w+\b", text.lower())
     return any(w in OFFENSIVE_WORDS for w in words)
 
-# --------- DATE NORMALISATION ---------
-
 def normalize_sheet_rows(rows):
     normalized = []
-
     for r in rows:
         raw = r.get("date")
         if not raw:
             continue
 
         raw = raw.strip()
-        parsed = None
-
         try:
             parsed = datetime.strptime(raw, "%d-%m-%Y")
         except ValueError:
@@ -97,11 +90,9 @@ def normalize_sheet_rows(rows):
 
         r["_date_obj"] = parsed.date()
 
-        # ---- NEW: per-question time (seconds) ----
         try:
-            r["_time_limit"] = int(r.get("time", DEFAULT_QUESTION_TIME))
-            if r["_time_limit"] <= 0:
-                raise ValueError
+            t = int(r.get("time", DEFAULT_QUESTION_TIME))
+            r["_time_limit"] = t if t > 0 else DEFAULT_QUESTION_TIME
         except Exception:
             r["_time_limit"] = DEFAULT_QUESTION_TIME
 
@@ -111,16 +102,16 @@ def normalize_sheet_rows(rows):
 
 def get_active_quiz_date(rows):
     today = today_date()
-    available_dates = sorted({r["_date_obj"] for r in rows})
+    available = sorted({r["_date_obj"] for r in rows})
 
-    if not available_dates:
+    if not available:
         return None
 
     if now_ist().hour < QUIZ_RELEASE_HOUR:
-        valid = [d for d in available_dates if d <= today]
+        valid = [d for d in available if d <= today]
         return valid[-1] if valid else None
 
-    return today if today in available_dates else None
+    return today if today in available else None
 
 # ================= GREETING =================
 
@@ -130,22 +121,17 @@ async def send_greeting(context, user_id, name):
         [InlineKeyboardButton("ℹ️ How it works", callback_data="how_it_works")]
     ])
 
-    text = (
-        "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "A focused daily practice platform for aspirants of  \n"
-        "🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
-        "What you get in every quiz:\n"
-        "📝 *Timed questions* — build speed and precision  \n"
-        "📊 *Score, Rank & Percentile* — benchmark your preparation  \n"
-        "📖 *Detailed explanations* — strengthen concepts, not guesses\n\n"
-        "Practice daily and improve accuracy.  \n"
-        "Consistency builds confidence. Accuracy builds ranks.\n\n"
-        "👇 *Tap below to begin today’s quiz*"
-    )
-
     await context.bot.send_message(
         chat_id=user_id,
-        text=text,
+        text=(
+            "📘 *Welcome to Vyasify Daily Quiz*\n\n"
+            "🎯 *UPSC | SSC | Regulatory Body Exams*\n\n"
+            "📝 Timed questions\n"
+            "📊 Score, Rank & Percentile\n"
+            "📖 Detailed explanations\n\n"
+            "Practice daily and improve accuracy.\n\n"
+            "👇 *Tap below to start the quiz*"
+        ),
         reply_markup=keyboard,
         parse_mode="Markdown",
     )
@@ -153,34 +139,21 @@ async def send_greeting(context, user_id, name):
 # ================= COMMAND =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_greeting(
-        context,
-        update.effective_user.id,
-        update.effective_user.first_name
-    )
+    await send_greeting(context, update.effective_user.id, update.effective_user.first_name)
 
 # ================= BUTTON HANDLER =================
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user = query.from_user
 
     if query.data == "start_quiz":
-        await start_quiz(context, user.id, user.first_name)
+        await start_quiz(context, query.from_user.id, query.from_user.first_name)
 
     elif query.data == "how_it_works":
         await context.bot.send_message(
-            chat_id=user.id,
-            text=(
-                "ℹ️ *How the Daily Quiz Works*\n\n"
-                "Each question is time-bound.\n"
-                "Time may vary by question based on difficulty.\n\n"
-                "• Answer within the given time\n"
-                "• Performance is ranked\n"
-                "• Detailed explanations follow\n\n"
-                "Designed for exam-focused preparation."
-            ),
+            chat_id=query.from_user.id,
+            text="ℹ️ Daily exam-style quiz with timer, leaderboard and explanations.",
             parse_mode="Markdown",
         )
 
@@ -189,25 +162,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_quiz(context, user_id, name):
     global current_quiz_date_key, daily_scores
 
-    rows = fetch_csv(QUIZ_CSV_URL)
-    rows = normalize_sheet_rows(rows)
-
+    rows = normalize_sheet_rows(fetch_csv(QUIZ_CSV_URL))
     quiz_date = get_active_quiz_date(rows)
 
     if not quiz_date:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="❌ Today’s quiz is not yet available. It will be updated soon! Thankyou for using Vyasify Daily Quiz"
-        )
+        await context.bot.send_message(chat_id=user_id, text="❌ Today’s quiz is not yet available.")
         return
 
     quiz_date_key = quiz_date.isoformat()
-
-    if current_quiz_date_key != quiz_date_key:
+    if quiz_date_key != current_quiz_date_key:
         daily_scores.clear()
         current_quiz_date_key = quiz_date_key
 
     questions = [r for r in rows if r["_date_obj"] == quiz_date]
+    if not questions:
+        await context.bot.send_message(chat_id=user_id, text="❌ Quiz data error. Please try again later.")
+        return
+
+    # ✅ SAFE topic extraction (THIS IS THE FIX)
+    quiz_topic = (questions[0].get("topic") or "").strip()
 
     sessions[user_id] = {
         "questions": questions,
@@ -221,24 +194,20 @@ async def start_quiz(context, user_id, name):
         "explanations": [],
     }
 
-header = f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*"
-if quiz_topic:
-    header += f"\n🧠 *Topic:* {quiz_topic}"
+    header = f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*"
+    if quiz_topic:
+        header += f"\n🧠 *Topic:* {quiz_topic}"
 
-msg = await context.bot.send_message(
-    chat_id=user_id,
-    text=f"{header}\n\n⏳ Starting in *3️⃣...*",
-    parse_mode="Markdown"
-)
-
-for n in ["2️⃣...", "1️⃣..."]:
-    await asyncio.sleep(1)
-    await msg.edit_text(
-        f"{header}\n\n⏳ Starting in *{n}*",
+    msg = await context.bot.send_message(
+        chat_id=user_id,
+        text=f"{header}\n\n⏳ Starting in *3️⃣...*",
         parse_mode="Markdown"
     )
 
-    
+    for n in ["2️⃣...", "1️⃣..."]:
+        await asyncio.sleep(1)
+        await msg.edit_text(f"{header}\n\n⏳ Starting in *{n}*", parse_mode="Markdown")
+
     await asyncio.sleep(1)
     await msg.delete()
     await send_question(context, user_id)
@@ -256,7 +225,7 @@ async def send_question(context, user_id):
         return
 
     q = s["questions"][s["index"]]
-    time_limit = q.get("_time_limit", DEFAULT_QUESTION_TIME)
+    t = q["_time_limit"]
 
     await context.bot.send_poll(
         chat_id=user_id,
@@ -264,17 +233,16 @@ async def send_question(context, user_id):
         options=[q["option_a"], q["option_b"], q["option_c"], q["option_d"]],
         type="quiz",
         correct_option_id=ord(q["correct_option"].strip()) - 65,
-        explanation=f"{q['explanation']}\n\nSource: {q['source']}",
-        explanation_parse_mode="Markdown",
+        explanation=q["explanation"],
         is_anonymous=False,
-        open_period=time_limit,
+        open_period=t,
     )
 
     s["active"] = True
-    s["timer"] = asyncio.create_task(question_timeout(context, user_id, time_limit))
+    s["timer"] = asyncio.create_task(question_timeout(context, user_id, t))
 
-async def question_timeout(context, user_id, time_limit):
-    await asyncio.sleep(time_limit)
+async def question_timeout(context, user_id, t):
+    await asyncio.sleep(t)
     s = sessions.get(user_id)
     if not s or not s["active"]:
         return
@@ -286,8 +254,7 @@ async def question_timeout(context, user_id, time_limit):
     await send_question(context, user_id)
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.poll_answer.user.id
-    s = sessions.get(user_id)
+    s = sessions.get(update.poll_answer.user.id)
     if not s or not s["active"]:
         return
 
@@ -302,60 +269,43 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s["active"] = False
     s["index"] += 1
     await asyncio.sleep(TRANSITION_DELAY)
-    await send_question(context, user_id)
+    await send_question(context, update.poll_answer.user.id)
 
-# ================= EXPLANATIONS =================
+# ================= RESULTS =================
 
 def store_explanation(session):
     q = session["questions"][session["index"]]
-    session["explanations"].append(
-        f"Q{session['index']+1}. {q['question']}\n{q['explanation']}"
-    )
-
-# ================= FINAL RESULT =================
+    session["explanations"].append(f"{q['question']}\n{q['explanation']}")
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
-
     total = len(s["questions"])
     correct = s["score"]
     time_taken = int(time.time() - s["start"])
-    minutes, seconds = divmod(time_taken, 60)
-    accuracy = int((correct / total) * 100)
 
-    daily_scores[user_id] = {
-        "name": s["name"],
-        "score": correct,
-        "time": time_taken
-    }
-
-    ranked = sorted(
-        daily_scores.values(),
-        key=lambda x: (-x["score"], x["time"])
-    )[:10]
+    daily_scores[user_id] = {"name": s["name"], "score": correct, "time": time_taken}
 
     leaderboard = ""
-    for i, e in enumerate(ranked, start=1):
-        m, sec = divmod(e["time"], 60)
-        leaderboard += f"{i}. {e['name']} — {e['score']} | {m}m {sec}s\n"
+    ranked = sorted(daily_scores.values(), key=lambda x: (-x["score"], x["time"]))[:10]
+    for i, r in enumerate(ranked, 1):
+        m, sec = divmod(r["time"], 60)
+        leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n"
 
     await context.bot.send_message(
         chat_id=user_id,
         text=(
-            "🏁 *Quiz Finished!*\n\n"
+            f"🏁 *Quiz Finished!*\n\n"
             f"✅ Correct: {correct}\n"
             f"❌ Wrong: {total - correct}\n"
-            f"🎯 Accuracy: {accuracy}%\n"
-            f"⏱ Time: {minutes}m {seconds}s\n\n"
-            "🏆 *Daily Leaderboard (Top 10)*\n"
-            f"{leaderboard}"
+            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
+            f"🏆 *Daily Leaderboard*\n{leaderboard}"
         ),
         parse_mode="Markdown"
     )
 
     await context.bot.send_message(
         chat_id=user_id,
-        text="📖 *Simple Explanations*\n\n" + "\n\n".join(s["explanations"]),
+        text="📖 *Explanations*\n\n" + "\n\n".join(s["explanations"]),
         parse_mode="Markdown"
     )
 
@@ -364,33 +314,19 @@ async def finish_quiz(context, user_id):
 # ================= MESSAGE HANDLER =================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    text = update.message.text.strip()
-
-    if contains_offensive(text):
-        blocked_logs.append({
-            "date": today_str(),
-            "time": now_ist().strftime("%H:%M:%S"),
-            "user_id": user.id,
-            "message": text,
-        })
-        await update.message.reply_text(
-            "❌ Please maintain respectful language."
-        )
+    if contains_offensive(update.message.text):
+        await update.message.reply_text("❌ Please maintain respectful language.")
         return
-
-    await send_greeting(context, user.id, user.first_name)
+    await send_greeting(context, update.effective_user.id, update.effective_user.first_name)
 
 # ================= MAIN =================
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(PollAnswerHandler(handle_answer))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
     app.run_polling()
 
 if __name__ == "__main__":
