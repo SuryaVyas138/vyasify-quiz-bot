@@ -187,7 +187,7 @@ async def start_quiz(context, user_id, name):
     if not quiz_date:
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Today’s quiz is not yet available."
+            text="❌ Today’s quiz is not yet available. It will be uploaded soon. ThankYou for choosing Vyasify Quiz!"
         )
         return
 
