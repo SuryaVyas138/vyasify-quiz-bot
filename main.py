@@ -25,7 +25,7 @@ from telegram.ext import (
 # ================= TIMEZONE =================
 
 IST = timezone(timedelta(hours=5, minutes=30))
-QUIZ_RELEASE_HOUR = 17
+QUIZ_RELEASE_HOUR = 17  # 5 PM IST
 
 def now_ist():
     return datetime.now(IST)
@@ -146,12 +146,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= QUIZ =================
 
 async def start_quiz(context, user_id, name):
+    global current_quiz_date_key, daily_scores
+
     rows = normalize_sheet_rows(fetch_csv(QUIZ_CSV_URL))
     quiz_date = get_active_quiz_date(rows)
 
     if not quiz_date:
         await context.bot.send_message(chat_id=user_id, text="❌ Today’s quiz is not yet available.")
         return
+
+    quiz_date_key = quiz_date.isoformat()
+    if quiz_date_key != current_quiz_date_key:
+        daily_scores.clear()
+        current_quiz_date_key = quiz_date_key
 
     questions = [r for r in rows if r["_date_obj"] == quiz_date]
 
@@ -167,6 +174,8 @@ async def start_quiz(context, user_id, name):
         "transitioned": False,
         "poll_message_id": None,
         "timer": None,
+        "name": name,
+        "explanations": [],
     }
 
     await send_question(context, user_id)
@@ -193,16 +202,15 @@ async def send_question(context, user_id):
     )
 
     s["poll_message_id"] = poll.message_id
-    s["timer"] = asyncio.create_task(question_timeout(context, user_id, s["index"], q["_time_limit"]))
+    s["timer"] = asyncio.create_task(
+        question_timeout(context, user_id, s["index"], q["_time_limit"])
+    )
 
 async def question_timeout(context, user_id, q_index, t):
     await asyncio.sleep(t)
     s = sessions.get(user_id)
 
-    if not s or s["transitioned"]:
-        return
-
-    if s["current_q_index"] != q_index:
+    if not s or s["transitioned"] or s["current_q_index"] != q_index:
         return
 
     try:
@@ -230,6 +238,11 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s["wrong"] += 1
         s["marks"] -= DEFAULT_MARKS_PER_QUESTION * DEFAULT_NEGATIVE_RATIO
 
+    s["explanations"].append(
+        f"Q{s['index'] + 1}. {q['question']}\n"
+        f"🔹 Explanation: {q['explanation']}"
+    )
+
     await advance_question(context, update.poll_answer.user.id)
 
 async def advance_question(context, user_id):
@@ -248,6 +261,25 @@ async def finish_quiz(context, user_id):
     s = sessions[user_id]
     total = len(s["questions"])
     skipped = total - s["attempted"]
+    time_taken = int(time.time() - s["start"])
+
+    # Leaderboard (first attempt only)
+    if user_id not in daily_scores:
+        daily_scores[user_id] = {
+            "name": s["name"],
+            "score": s["score"],
+            "time": time_taken
+        }
+
+    ranked = sorted(
+        daily_scores.values(),
+        key=lambda x: (-x["score"], x["time"])
+    )[:10]
+
+    leaderboard = ""
+    for i, r in enumerate(ranked, 1):
+        m, sec = divmod(r["time"], 60)
+        leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n"
 
     await context.bot.send_message(
         chat_id=user_id,
@@ -257,8 +289,17 @@ async def finish_quiz(context, user_id):
             f"✅ Correct: {s['score']}\n"
             f"❌ Wrong: {s['wrong']}\n"
             f"⏭ Skipped: {skipped}\n"
-            f"🎯 Total Marks: {round(s['marks'], 2)}"
+            f"🎯 Total Marks: {round(s['marks'], 2)}\n\n"
+            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
+            "🏆 *Daily Leaderboard (Top 10)*\n"
+            f"{leaderboard}"
         ),
+        parse_mode="Markdown"
+    )
+
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="📖 *Simple Explanations*\n\n" + "\n\n".join(s["explanations"]),
         parse_mode="Markdown"
     )
 
