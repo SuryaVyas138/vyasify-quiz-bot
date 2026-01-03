@@ -214,6 +214,7 @@ async def start_quiz(context, user_id, name):
         "start": time.time(),
         "name": name,
         "active": False,
+        "transitioned": False,   # 🔑 SINGLE-ADVANCE GUARD
         "timer": None,
         "finished": False,
         "explanations": [],
@@ -255,6 +256,9 @@ async def send_question(context, user_id):
     q = s["questions"][s["index"]]
     t = q["_time_limit"]
 
+    s["active"] = True
+    s["transitioned"] = False
+
     await context.bot.send_poll(
         chat_id=user_id,
         question=q["question"],
@@ -266,38 +270,45 @@ async def send_question(context, user_id):
         open_period=t,
     )
 
-    s["active"] = True
     s["timer"] = asyncio.create_task(question_timeout(context, user_id, t))
+
+async def advance_question(context, user_id):
+    s = sessions.get(user_id)
+    if not s or s["transitioned"]:
+        return
+
+    s["transitioned"] = True
+    s["active"] = False
+    s["index"] += 1
+
+    await asyncio.sleep(TRANSITION_DELAY)
+    await send_question(context, user_id)
 
 async def question_timeout(context, user_id, t):
     await asyncio.sleep(t)
     s = sessions.get(user_id)
-    if not s or not s["active"]:
+    if not s or s["transitioned"]:
         return
 
     store_explanation(s)
-    s["active"] = False
-    s["index"] += 1
-    await asyncio.sleep(TRANSITION_DELAY)
-    await send_question(context, user_id)
+    await advance_question(context, user_id)
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    s = sessions.get(update.poll_answer.user.id)
-    if not s or not s["active"]:
+    user_id = update.poll_answer.user.id
+    s = sessions.get(user_id)
+    if not s or s["transitioned"]:
         return
-
-    if s["timer"]:
-        s["timer"].cancel()
 
     q = s["questions"][s["index"]]
     if update.poll_answer.option_ids[0] == ord(q["correct_option"].strip()) - 65:
         s["score"] += 1
 
     store_explanation(s)
-    s["active"] = False
-    s["index"] += 1
-    await asyncio.sleep(TRANSITION_DELAY)
-    await send_question(context, update.poll_answer.user.id)
+
+    if s["timer"]:
+        s["timer"].cancel()
+
+    await advance_question(context, user_id)
 
 # ================= EXPLANATIONS =================
 
