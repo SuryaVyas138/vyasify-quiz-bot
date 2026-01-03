@@ -112,9 +112,11 @@ async def send_greeting(context, user_id, name):
 
     text = (
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a focused daily practice platform for aspirants of:\n"
-        "🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
+        "This is a focused daily practice platform for aspirants of🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
         "🔹 *Daily 10 questions* strictly aligned to *UPSC Prelims-oriented topics*\n\n"
+        "📝 Correct Answer: 2 Marks\n"
+        "📝 Negative Marking: -1/3 Marks\n"
+        "📝 Skipped: 0 Marks\n\n"
         "📝 Timed questions to build exam temperament\n"
         "📊 Score, Rank & Percentile for self-benchmarking\n"
         "📖 Simple explanations for concept clarity\n\n"
@@ -143,7 +145,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "start_quiz":
         await start_quiz(context, query.from_user.id, query.from_user.first_name)
 
-# ================= QUIZ =================
+# ================= QUIZ START =================
 
 async def start_quiz(context, user_id, name):
     global current_quiz_date_key, daily_scores
@@ -152,7 +154,7 @@ async def start_quiz(context, user_id, name):
     quiz_date = get_active_quiz_date(rows)
 
     if not quiz_date:
-        await context.bot.send_message(chat_id=user_id, text="❌ Today’s quiz is not yet available.")
+        await context.bot.send_message(chat_id=user_id, text="❌ Today’s quiz is not yet available.It will be uploaded soon. ThankYou for choosing Vyasify Quiz!")
         return
 
     quiz_date_key = quiz_date.isoformat()
@@ -161,6 +163,7 @@ async def start_quiz(context, user_id, name):
         current_quiz_date_key = quiz_date_key
 
     questions = [r for r in rows if r["_date_obj"] == quiz_date]
+    topic = (questions[0].get("topic") or "").strip()
 
     sessions[user_id] = {
         "questions": questions,
@@ -178,7 +181,30 @@ async def start_quiz(context, user_id, name):
         "explanations": [],
     }
 
+    # 🔹 INTRO + COUNTDOWN (RESTORED)
+    header = f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*"
+    if topic:
+        header += f"\n🧠 *Topic:* {topic}"
+
+    msg = await context.bot.send_message(
+        chat_id=user_id,
+        text=f"{header}\n\n⏳ Starting in *3️⃣…*",
+        parse_mode="Markdown"
+    )
+
+    for n in ["2️⃣…", "1️⃣…"]:
+        await asyncio.sleep(1)
+        await msg.edit_text(
+            f"{header}\n\n⏳ Starting in *{n}*",
+            parse_mode="Markdown"
+        )
+
+    await asyncio.sleep(1)
+    await msg.delete()
+
     await send_question(context, user_id)
+
+# ================= QUIZ FLOW =================
 
 async def send_question(context, user_id):
     s = sessions[user_id]
@@ -263,7 +289,6 @@ async def finish_quiz(context, user_id):
     skipped = total - s["attempted"]
     time_taken = int(time.time() - s["start"])
 
-    # Leaderboard (first attempt only)
     if user_id not in daily_scores:
         daily_scores[user_id] = {
             "name": s["name"],
