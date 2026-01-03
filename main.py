@@ -30,11 +30,11 @@ QUIZ_RELEASE_HOUR = 17  # 5 PM IST
 def now_ist():
     return datetime.now(IST)
 
-def today():
-    return now_ist().strftime("%d-%m-%Y")
+def today_date():
+    return now_ist().date()
 
-def now_time():
-    return now_ist().strftime("%H:%M:%S")
+def today_str():
+    return today_date().strftime("%d-%m-%Y")
 
 # ================= CONFIG =================
 
@@ -55,12 +55,12 @@ QUIZ_CSV_URL = (
 QUESTION_TIME = 20
 TRANSITION_DELAY = 1
 
-# ================= STORAGE =================
+# ================= STATE =================
 
 sessions = {}
 daily_scores = {}
 blocked_logs = []
-current_quiz_date = None
+current_quiz_date_key = None  # ISO string YYYY-MM-DD
 
 # ================= HELPERS =================
 
@@ -74,41 +74,54 @@ def contains_offensive(text: str) -> bool:
     words = re.findall(r"\b\w+\b", text.lower())
     return any(w in OFFENSIVE_WORDS for w in words)
 
-def parse_sheet_date(date_str):
-    date_str = date_str.strip()
-    for fmt in ("%d-%m-%Y", "%m-%d-%Y"):
-        try:
-            return datetime.strptime(date_str, fmt)
-        except ValueError:
-            continue
-    return None
+# --------- CRITICAL: DATE NORMALISATION ---------
 
-def get_active_quiz_date(rows):
-    today_dt = now_ist().date()
-    date_map = {}
+def normalize_sheet_rows(rows):
+    """
+    Parses date ONCE and attaches canonical date object to each row.
+    Safely supports DD-MM-YYYY and MM-DD-YYYY.
+    """
+    normalized = []
 
     for r in rows:
         raw = r.get("date")
         if not raw:
             continue
-        parsed = parse_sheet_date(raw)
-        if not parsed:
-            continue
-        date_map.setdefault(parsed.date(), []).append(r)
 
-    if not date_map:
+        raw = raw.strip()
+        parsed = None
+
+        # Indian priority first
+        try:
+            parsed = datetime.strptime(raw, "%d-%m-%Y")
+        except ValueError:
+            try:
+                parsed = datetime.strptime(raw, "%m-%d-%Y")
+            except ValueError:
+                continue  # skip invalid rows safely
+
+        r["_date_obj"] = parsed.date()
+        normalized.append(r)
+
+    return normalized
+
+def get_active_quiz_date(rows):
+    """
+    Returns a date object (not string) for the active quiz.
+    """
+    today = today_date()
+    available_dates = sorted({r["_date_obj"] for r in rows})
+
+    if not available_dates:
         return None
 
-    available_dates = sorted(date_map.keys())
-
+    # Before 5 PM → latest past or today
     if now_ist().hour < QUIZ_RELEASE_HOUR:
-        valid = [d for d in available_dates if d <= today_dt]
-        return valid[-1].strftime("%d-%m-%Y") if valid else None
+        valid = [d for d in available_dates if d <= today]
+        return valid[-1] if valid else None
 
-    if today_dt in available_dates:
-        return today_dt.strftime("%d-%m-%Y")
-
-    return None
+    # After 5 PM → today only
+    return today if today in available_dates else None
 
 # ================= GREETING =================
 
@@ -177,9 +190,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= QUIZ START =================
 
 async def start_quiz(context, user_id, name):
-    global current_quiz_date, daily_scores
+    global current_quiz_date_key, daily_scores
 
     rows = fetch_csv(QUIZ_CSV_URL)
+    rows = normalize_sheet_rows(rows)
+
     quiz_date = get_active_quiz_date(rows)
 
     if not quiz_date:
@@ -189,14 +204,13 @@ async def start_quiz(context, user_id, name):
         )
         return
 
-    if current_quiz_date != quiz_date:
-        daily_scores.clear()
-        current_quiz_date = quiz_date
+    quiz_date_key = quiz_date.isoformat()
 
-    questions = [
-        r for r in rows
-        if parse_sheet_date(r["date"]).strftime("%d-%m-%Y") == quiz_date
-    ]
+    if current_quiz_date_key != quiz_date_key:
+        daily_scores.clear()
+        current_quiz_date_key = quiz_date_key
+
+    questions = [r for r in rows if r["_date_obj"] == quiz_date]
 
     sessions[user_id] = {
         "questions": questions,
@@ -212,14 +226,14 @@ async def start_quiz(context, user_id, name):
 
     msg = await context.bot.send_message(
         chat_id=user_id,
-        text=f"📘 *Quiz for {quiz_date}*\n\n⏳ Starting in *3️⃣*",
+        text=f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*\n\n⏳ Starting in *3️⃣*",
         parse_mode="Markdown"
     )
 
     for n in ["2️⃣", "1️⃣"]:
         await asyncio.sleep(1)
         await msg.edit_text(
-            f"📘 *Quiz for {quiz_date}*\n\n⏳ Starting in *{n}*",
+            f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*\n\n⏳ Starting in *{n}*",
             parse_mode="Markdown"
         )
 
@@ -352,8 +366,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if contains_offensive(text):
         blocked_logs.append({
-            "date": today(),
-            "time": now_time(),
+            "date": today_str(),
+            "time": now_ist().strftime("%H:%M:%S"),
             "user_id": user.id,
             "message": text,
         })
