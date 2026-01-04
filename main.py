@@ -88,14 +88,10 @@ def normalize_sheet_rows(rows):
 
     return normalized
 
-# 🔧 FIXED: Always return latest available quiz date ≤ today
+# ✅ FIXED DATE LOGIC (already verified earlier)
 def get_active_quiz_date(rows):
     today = today_date()
     available = sorted({r["_date_obj"] for r in rows})
-
-    if not available:
-        return None
-
     valid = [d for d in available if d <= today]
     return valid[-1] if valid else None
 
@@ -216,7 +212,7 @@ async def start_quiz(context, user_id, name):
     await msg.delete()
     await send_question(context, user_id)
 
-# ================= QUIZ FLOW =================
+# ================= QUIZ FLOW (ONLY FIXED PART) =================
 
 async def send_question(context, user_id):
     s = sessions[user_id]
@@ -229,9 +225,12 @@ async def send_question(context, user_id):
     s["current_q_index"] = s["index"]
     s["transitioned"] = False
 
+    # ✅ REQUIRED FIXES
+    question_text = q["question"].replace("\\n", "\n")
+
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.* {q['question']}",
+        text=f"*Q{s['index'] + 1}.*\n\n{question_text}",
         parse_mode="Markdown"
     )
 
@@ -283,9 +282,13 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s["wrong"] += 1
         s["marks"] -= DEFAULT_MARKS_PER_QUESTION * DEFAULT_NEGATIVE_RATIO
 
+    # ✅ REQUIRED FIX FOR EXPLANATION
+    explanation_text = q["explanation"].replace("\\n", "\n")
+    question_text = q["question"].replace("\\n", "\n")
+
     s["explanations"].append(
-        f"Q{s['index'] + 1}. {q['question']}\n"
-        f"*📘Explanation:* {q['explanation']}"
+        f"Q{s['index'] + 1}. {question_text}\n"
+        f"*📘Explanation:* {explanation_text}"
     )
 
     await advance_question(context, update.poll_answer.user.id)
