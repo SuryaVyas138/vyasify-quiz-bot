@@ -28,7 +28,7 @@ def now_ist():
 def today_date():
     return now_ist().date()
 
-# ================= CONFIG =================
+# ================= CONFIG ================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
