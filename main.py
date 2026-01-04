@@ -25,7 +25,6 @@ from telegram.ext import (
 # ================= TIMEZONE =================
 
 IST = timezone(timedelta(hours=5, minutes=30))
-QUIZ_RELEASE_HOUR = 17  # 5 PM IST
 
 def now_ist():
     return datetime.now(IST)
@@ -89,6 +88,7 @@ def normalize_sheet_rows(rows):
 
     return normalized
 
+# 🔧 FIXED: Always return latest available quiz date ≤ today
 def get_active_quiz_date(rows):
     today = today_date()
     available = sorted({r["_date_obj"] for r in rows})
@@ -96,11 +96,8 @@ def get_active_quiz_date(rows):
     if not available:
         return None
 
-    if now_ist().hour < QUIZ_RELEASE_HOUR:
-        valid = [d for d in available if d <= today]
-        return valid[-1] if valid else None
-
-    return today if today in available else None
+    valid = [d for d in available if d <= today]
+    return valid[-1] if valid else None
 
 # ================= GREETING =================
 
@@ -232,9 +229,15 @@ async def send_question(context, user_id):
     s["current_q_index"] = s["index"]
     s["transitioned"] = False
 
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"*Q{s['index'] + 1}.* {q['question']}",
+        parse_mode="Markdown"
+    )
+
     poll = await context.bot.send_poll(
         chat_id=user_id,
-        question=q["question"],
+        question="Choose the correct answer:",
         options=[q["option_a"], q["option_b"], q["option_c"], q["option_d"]],
         type="quiz",
         correct_option_id=ord(q["correct_option"].strip().upper()) - 65,
@@ -305,7 +308,6 @@ async def finish_quiz(context, user_id):
     skipped = total - s["attempted"]
     time_taken = int(time.time() - s["start"])
 
-    # 🔹 ONLY CHANGE: leaderboard stores FINAL MARKS
     if user_id not in daily_scores:
         daily_scores[user_id] = {
             "name": s["name"],
@@ -313,10 +315,7 @@ async def finish_quiz(context, user_id):
             "time": time_taken
         }
 
-    ranked = sorted(
-        daily_scores.values(),
-        key=lambda x: (-x["score"], x["time"])
-    )[:10]
+    ranked = sorted(daily_scores.values(), key=lambda x: (-x["score"], x["time"]))[:10]
 
     leaderboard = ""
     for i, r in enumerate(ranked, 1):
