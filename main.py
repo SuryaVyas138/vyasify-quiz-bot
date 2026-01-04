@@ -244,7 +244,7 @@ async def send_question(context, user_id):
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.*\n\n{question_text}",
+        text=f"*Q{s['index'] + 1}.*{question_text}",
         parse_mode="Markdown"
     )
 
