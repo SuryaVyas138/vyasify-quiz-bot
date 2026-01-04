@@ -88,12 +88,26 @@ def normalize_sheet_rows(rows):
 
     return normalized
 
-# ✅ FIXED DATE LOGIC (already verified earlier)
 def get_active_quiz_date(rows):
     today = today_date()
     available = sorted({r["_date_obj"] for r in rows})
     valid = [d for d in available if d <= today]
     return valid[-1] if valid else None
+
+# ================= EXPLANATION RECORDER =================
+# ✅ SINGLE SOURCE OF TRUTH — runs for attempted & skipped
+
+def record_explanation(session, question, q_no):
+    if len(session["explanations"]) >= q_no:
+        return
+
+    question_text = question["question"].replace("\\n", "\n")
+    explanation_text = question["explanation"].replace("\\n", "\n")
+
+    session["explanations"].append(
+        f"Q{q_no}. {question_text}\n"
+        f"*📘Explanation:* {explanation_text}"
+    )
 
 # ================= GREETING =================
 
@@ -212,7 +226,7 @@ async def start_quiz(context, user_id, name):
     await msg.delete()
     await send_question(context, user_id)
 
-# ================= QUIZ FLOW (ONLY FIXED PART) =================
+# ================= QUIZ FLOW =================
 
 async def send_question(context, user_id):
     s = sessions[user_id]
@@ -225,7 +239,6 @@ async def send_question(context, user_id):
     s["current_q_index"] = s["index"]
     s["transitioned"] = False
 
-    # ✅ REQUIRED FIXES
     question_text = q["question"].replace("\\n", "\n")
 
     await context.bot.send_message(
@@ -261,6 +274,9 @@ async def question_timeout(context, user_id, q_index, t):
     except:
         pass
 
+    q = s["questions"][q_index]
+    record_explanation(s, q, q_index + 1)
+
     s["timer"] = None
     await advance_question(context, user_id)
 
@@ -282,14 +298,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s["wrong"] += 1
         s["marks"] -= DEFAULT_MARKS_PER_QUESTION * DEFAULT_NEGATIVE_RATIO
 
-    # ✅ REQUIRED FIX FOR EXPLANATION
-    explanation_text = q["explanation"].replace("\\n", "\n")
-    question_text = q["question"].replace("\\n", "\n")
-
-    s["explanations"].append(
-        f"Q{s['index'] + 1}. {question_text}\n"
-        f"*📘Explanation:* {explanation_text}"
-    )
+    record_explanation(s, q, s["index"] + 1)
 
     await advance_question(context, update.poll_answer.user.id)
 
@@ -318,7 +327,10 @@ async def finish_quiz(context, user_id):
             "time": time_taken
         }
 
-    ranked = sorted(daily_scores.values(), key=lambda x: (-x["score"], x["time"]))[:10]
+    ranked = sorted(
+        daily_scores.values(),
+        key=lambda x: (-x["score"], x["time"])
+    )[:10]
 
     leaderboard = ""
     for i, r in enumerate(ranked, 1):
