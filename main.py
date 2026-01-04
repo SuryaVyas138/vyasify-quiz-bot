@@ -145,6 +145,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "start_quiz":
         await start_quiz(context, query.from_user.id, query.from_user.first_name)
 
+    elif query.data == "how_it_works":
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text=(
+                "ℹ️ *How the Daily Quiz Works*\n\n"
+                "• 10 exam-oriented questions daily\n"
+                "• Timed per question\n"
+                "• UPSC-style marking\n"
+                "• Leaderboard based on first attempt\n"
+                "• Explanations after completion"
+            ),
+            parse_mode="Markdown",
+        )
+
 # ================= QUIZ START =================
 
 async def start_quiz(context, user_id, name):
@@ -154,7 +168,10 @@ async def start_quiz(context, user_id, name):
     quiz_date = get_active_quiz_date(rows)
 
     if not quiz_date:
-        await context.bot.send_message(chat_id=user_id, text="❌ Today’s quiz is not yet available.It will be uploaded soon. ThankYou for choosing Vyasify Quiz!")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ Today’s quiz is not yet available.It will be uploaded soon. ThankYou for choosing Vyasify Quiz!"
+        )
         return
 
     quiz_date_key = quiz_date.isoformat()
@@ -181,7 +198,6 @@ async def start_quiz(context, user_id, name):
         "explanations": [],
     }
 
-    # 🔹 INTRO + COUNTDOWN (RESTORED)
     header = f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*"
     if topic:
         header += f"\n🧠 *Topic:* {topic}"
@@ -201,7 +217,6 @@ async def start_quiz(context, user_id, name):
 
     await asyncio.sleep(1)
     await msg.delete()
-
     await send_question(context, user_id)
 
 # ================= QUIZ FLOW =================
@@ -244,11 +259,12 @@ async def question_timeout(context, user_id, q_index, t):
     except:
         pass
 
+    s["timer"] = None
     await advance_question(context, user_id)
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = sessions.get(update.poll_answer.user.id)
-    if not s or s["transitioned"]:
+    if not s or s["transitioned"] or s["current_q_index"] != s["index"]:
         return
 
     if s["timer"]:
@@ -289,10 +305,11 @@ async def finish_quiz(context, user_id):
     skipped = total - s["attempted"]
     time_taken = int(time.time() - s["start"])
 
+    # 🔹 ONLY CHANGE: leaderboard stores FINAL MARKS
     if user_id not in daily_scores:
         daily_scores[user_id] = {
             "name": s["name"],
-            "score": s["score"],
+            "score": round(s["marks"], 2),
             "time": time_taken
         }
 
