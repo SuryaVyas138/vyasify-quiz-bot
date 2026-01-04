@@ -95,8 +95,7 @@ def get_active_quiz_date(rows):
     valid = [d for d in available if d <= today]
     return valid[-1] if valid else None
 
-# ================= ADDITION 1: EXPLANATION RECORDER =================
-# (Does NOT modify existing logic; only called)
+# ================= ADDITION: EXPLANATION RECORDER =================
 
 def record_explanation(session, question, q_no):
     if len(session["explanations"]) >= q_no:
@@ -244,7 +243,7 @@ async def send_question(context, user_id):
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.*{question_text}",
+        text=f"*Q{s['index'] + 1}.*\n{question_text}",
         parse_mode="Markdown"
     )
 
@@ -275,7 +274,6 @@ async def question_timeout(context, user_id, q_index, t):
     except:
         pass
 
-    # ADDITION: explanation for skipped question
     record_explanation(s, s["questions"][q_index], q_index + 1)
 
     s["timer"] = None
@@ -299,10 +297,11 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s["wrong"] += 1
         s["marks"] -= DEFAULT_MARKS_PER_QUESTION * DEFAULT_NEGATIVE_RATIO
 
-    # ADDITION: explanation for attempted question
     record_explanation(s, q, s["index"] + 1)
 
     await advance_question(context, update.poll_answer.user.id)
+
+# ================= FIXED TERMINATION =================
 
 async def advance_question(context, user_id):
     s = sessions[user_id]
@@ -311,6 +310,12 @@ async def advance_question(context, user_id):
 
     s["transitioned"] = True
     s["index"] += 1
+
+    # ✅ PROFESSIONAL FIX: ALWAYS finish quiz after last question
+    if s["index"] >= len(s["questions"]):
+        await finish_quiz(context, user_id)
+        return
+
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
@@ -355,7 +360,6 @@ async def finish_quiz(context, user_id):
         parse_mode="Markdown"
     )
 
-    # ================= ADDITION 2: GUARD BEFORE EXPLANATION SEND =================
     if s["explanations"]:
         await context.bot.send_message(
             chat_id=user_id,
