@@ -7,11 +7,7 @@ import re
 from io import StringIO
 from datetime import datetime, timezone, timedelta
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -74,12 +70,11 @@ def normalize_sheet_rows(rows):
         if not raw:
             continue
 
-        raw = raw.strip()
         try:
-            parsed = datetime.strptime(raw, "%d-%m-%Y")
+            parsed = datetime.strptime(raw.strip(), "%d-%m-%Y")
         except ValueError:
             try:
-                parsed = datetime.strptime(raw, "%m-%d-%Y")
+                parsed = datetime.strptime(raw.strip(), "%m-%d-%Y")
             except ValueError:
                 continue
 
@@ -95,14 +90,14 @@ def get_active_quiz_date(rows):
     valid = [d for d in available if d <= today]
     return valid[-1] if valid else None
 
-# ================= ADDITION: EXPLANATION RECORDER =================
+# ================= EXPLANATION RECORDER =================
 
-def record_explanation(session, question, q_no):
+def record_explanation(session, q, q_no):
     if len(session["explanations"]) >= q_no:
         return
 
-    question_text = question["question"].replace("\\n", "\n")
-    explanation_text = question["explanation"].replace("\\n", "\n")
+    question_text = q["question"].replace("\\n", "\n")
+    explanation_text = q["explanation"].replace("\\n", "\n")
 
     session["explanations"].append(
         f"Q{q_no}. {question_text}\n"
@@ -177,7 +172,7 @@ async def start_quiz(context, user_id, name):
     if not quiz_date:
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Today’s quiz is not yet available.It will be uploaded soon. ThankYou for choosing Vyasify Quiz!"
+            text="❌ Today’s quiz is not yet available. Please try again later."
         )
         return
 
@@ -187,7 +182,6 @@ async def start_quiz(context, user_id, name):
         current_quiz_date_key = quiz_date_key
 
     questions = [r for r in rows if r["_date_obj"] == quiz_date]
-    topic = (questions[0].get("topic") or "").strip()
 
     sessions[user_id] = {
         "questions": questions,
@@ -205,25 +199,6 @@ async def start_quiz(context, user_id, name):
         "explanations": [],
     }
 
-    header = f"📘 *Quiz for {quiz_date.strftime('%d-%m-%Y')}*"
-    if topic:
-        header += f"\n🧠 *Topic:* {topic}"
-
-    msg = await context.bot.send_message(
-        chat_id=user_id,
-        text=f"{header}\n\n⏳ Starting in *3️⃣...*",
-        parse_mode="Markdown"
-    )
-
-    for n in ["2️⃣..", "1️⃣..."]:
-        await asyncio.sleep(1)
-        await msg.edit_text(
-            f"{header}\n\n⏳ Starting in *{n}*",
-            parse_mode="Markdown"
-        )
-
-    await asyncio.sleep(1)
-    await msg.delete()
     await send_question(context, user_id)
 
 # ================= QUIZ FLOW =================
@@ -243,7 +218,7 @@ async def send_question(context, user_id):
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.*{question_text}",
+        text=f"*Q{s['index'] + 1}.*\n{question_text}",
         parse_mode="Markdown"
     )
 
@@ -266,22 +241,15 @@ async def question_timeout(context, user_id, q_index, t):
     await asyncio.sleep(t)
     s = sessions.get(user_id)
 
-    if not s or s["transitioned"] or s["current_q_index"] != q_index:
+    if not s or s["transitioned"]:
         return
 
-    try:
-        await context.bot.stop_poll(chat_id=user_id, message_id=s["poll_message_id"])
-    except:
-        pass
-
     record_explanation(s, s["questions"][q_index], q_index + 1)
-
-    s["timer"] = None
     await advance_question(context, user_id)
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = sessions.get(update.poll_answer.user.id)
-    if not s or s["transitioned"] or s["current_q_index"] != s["index"]:
+    if not s or s["transitioned"]:
         return
 
     if s["timer"]:
@@ -298,10 +266,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s["marks"] -= DEFAULT_MARKS_PER_QUESTION * DEFAULT_NEGATIVE_RATIO
 
     record_explanation(s, q, s["index"] + 1)
-
     await advance_question(context, update.poll_answer.user.id)
-
-# ================= FIXED TERMINATION =================
 
 async def advance_question(context, user_id):
     s = sessions[user_id]
@@ -311,7 +276,6 @@ async def advance_question(context, user_id):
     s["transitioned"] = True
     s["index"] += 1
 
-    # ✅ PROFESSIONAL FIX: ALWAYS finish quiz after last question
     if s["index"] >= len(s["questions"]):
         await finish_quiz(context, user_id)
         return
@@ -323,26 +287,6 @@ async def advance_question(context, user_id):
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
-    total = len(s["questions"])
-    skipped = total - s["attempted"]
-    time_taken = int(time.time() - s["start"])
-
-    if user_id not in daily_scores:
-        daily_scores[user_id] = {
-            "name": s["name"],
-            "score": round(s["marks"], 2),
-            "time": time_taken
-        }
-
-    ranked = sorted(
-        daily_scores.values(),
-        key=lambda x: (-x["score"], x["time"])
-    )[:10]
-
-    leaderboard = ""
-    for i, r in enumerate(ranked, 1):
-        m, sec = divmod(r["time"], 60)
-        leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n"
 
     await context.bot.send_message(
         chat_id=user_id,
@@ -351,21 +295,31 @@ async def finish_quiz(context, user_id):
             f"📝 Total Attempted: {s['attempted']}\n"
             f"✅ Correct: {s['score']}\n"
             f"❌ Wrong: {s['wrong']}\n"
-            f"⏭ Skipped: {skipped}\n"
-            f"🎯 Total Marks: {round(s['marks'], 2)}\n\n"
-            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
-            "🏆 *Daily Leaderboard (Top 10)*\n"
-            f"{leaderboard}"
+            f"🎯 Total Marks: {round(s['marks'], 2)}"
         ),
         parse_mode="Markdown"
     )
 
     if s["explanations"]:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="📖 *Simple Explanations*\n\n" + "\n\n".join(s["explanations"]),
-            parse_mode="Markdown"
-        )
+        header = "📖 *Simple Explanations*\n\n"
+        chunk = header
+
+        for exp in s["explanations"]:
+            if len(chunk) + len(exp) > 3800:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=chunk,
+                    parse_mode="Markdown"
+                )
+                chunk = header
+            chunk += exp + "\n\n"
+
+        if chunk.strip() != header.strip():
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=chunk,
+                parse_mode="Markdown"
+            )
 
     del sessions[user_id]
 
@@ -381,12 +335,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(PollAnswerHandler(handle_answer))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
     app.run_polling()
 
 if __name__ == "__main__":
