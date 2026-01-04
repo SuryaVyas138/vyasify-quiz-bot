@@ -21,7 +21,6 @@ from telegram.ext import (
 # ================= TIMEZONE =================
 
 IST = timezone(timedelta(hours=5, minutes=30))
-QUIZ_RELEASE_HOUR = 17  # 5 PM IST
 
 def now_ist():
     return datetime.now(IST)
@@ -43,7 +42,6 @@ QUIZ_CSV_URL = (
 
 DEFAULT_QUESTION_TIME = 20
 TRANSITION_DELAY = 1
-
 DEFAULT_MARKS_PER_QUESTION = 2
 DEFAULT_NEGATIVE_RATIO = 1 / 3
 
@@ -73,10 +71,7 @@ def normalize_sheet_rows(rows):
         try:
             parsed = datetime.strptime(raw.strip(), "%d-%m-%Y")
         except ValueError:
-            try:
-                parsed = datetime.strptime(raw.strip(), "%m-%d-%Y")
-            except ValueError:
-                continue
+            continue
 
         r["_date_obj"] = parsed.date()
         r["_time_limit"] = int(r.get("time", DEFAULT_QUESTION_TIME))
@@ -122,7 +117,6 @@ async def send_greeting(context, user_id, name):
         "📝 Timed questions to build exam temperament\n"
         "📊 Score, Rank & Percentile for self-benchmarking\n"
         "📖 Simple explanations for concept clarity\n\n"
-        "Practice daily and improve accuracy.\n\n"
         "👇 *Tap below to start today’s quiz*"
     )
 
@@ -172,7 +166,7 @@ async def start_quiz(context, user_id, name):
     if not quiz_date:
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Today’s quiz is not yet available. Please try again later."
+            text="❌ Today’s quiz is not yet available."
         )
         return
 
@@ -214,11 +208,9 @@ async def send_question(context, user_id):
     s["current_q_index"] = s["index"]
     s["transitioned"] = False
 
-    question_text = q["question"].replace("\\n", "\n")
-
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.*\n{question_text}",
+        text=f"*Q{s['index'] + 1}.*\n{q['question'].replace('\\n','\n')}",
         parse_mode="Markdown"
     )
 
@@ -233,14 +225,11 @@ async def send_question(context, user_id):
     )
 
     s["poll_message_id"] = poll.message_id
-    s["timer"] = asyncio.create_task(
-        question_timeout(context, user_id, s["index"], q["_time_limit"])
-    )
+    s["timer"] = asyncio.create_task(question_timeout(context, user_id, s["index"], q["_time_limit"]))
 
 async def question_timeout(context, user_id, q_index, t):
     await asyncio.sleep(t)
     s = sessions.get(user_id)
-
     if not s or s["transitioned"]:
         return
 
@@ -283,19 +272,41 @@ async def advance_question(context, user_id):
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ================= RESULT =================
+# ================= RESULT (RESTORED FULLY) =================
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
+
+    total = len(s["questions"])
+    skipped = total - s["attempted"]
+    time_taken = int(time.time() - s["start"])
+
+    if user_id not in daily_scores:
+        daily_scores[user_id] = {
+            "name": s["name"],
+            "score": round(s["marks"], 2),
+            "time": time_taken
+        }
+
+    ranked = sorted(daily_scores.values(), key=lambda x: (-x["score"], x["time"]))[:10]
+
+    leaderboard = ""
+    for i, r in enumerate(ranked, 1):
+        m, sec = divmod(r["time"], 60)
+        leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n"
 
     await context.bot.send_message(
         chat_id=user_id,
         text=(
             "🏁 *Quiz Finished!*\n\n"
-            f"📝 Total Attempted: {s['attempted']}\n"
+            f"📝 Attempted: {s['attempted']}/{total}\n"
             f"✅ Correct: {s['score']}\n"
             f"❌ Wrong: {s['wrong']}\n"
-            f"🎯 Total Marks: {round(s['marks'], 2)}"
+            f"⏭ Skipped: {skipped}\n"
+            f"🎯 Marks: {round(s['marks'],2)}\n"
+            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
+            "🏆 *Daily Leaderboard (Top 10)*\n"
+            f"{leaderboard}"
         ),
         parse_mode="Markdown"
     )
@@ -303,23 +314,13 @@ async def finish_quiz(context, user_id):
     if s["explanations"]:
         header = "📖 *Simple Explanations*\n\n"
         chunk = header
-
         for exp in s["explanations"]:
             if len(chunk) + len(exp) > 3800:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=chunk,
-                    parse_mode="Markdown"
-                )
+                await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
                 chunk = header
             chunk += exp + "\n\n"
-
         if chunk.strip() != header.strip():
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=chunk,
-                parse_mode="Markdown"
-            )
+            await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
 
     del sessions[user_id]
 
