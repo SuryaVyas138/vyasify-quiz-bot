@@ -28,7 +28,7 @@ def now_ist():
 def today_date():
     return now_ist().date()
 
-# ================= CONFIG ================
+# ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
@@ -51,7 +51,7 @@ sessions = {}
 daily_scores = {}
 current_quiz_date_key = None
 
-# ================= HELPERS ================
+# ================= HELPERS =================
 
 def fetch_csv(url):
     r = requests.get(f"{url}&_ts={int(time.time())}", timeout=15)
@@ -208,9 +208,11 @@ async def send_question(context, user_id):
     s["current_q_index"] = s["index"]
     s["transitioned"] = False
 
+    question_text = q["question"].replace("\\n", "\n")
+
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.*\n{q['question'].replace('\\n','\n')}",
+        text=f"*Q{s['index'] + 1}.*\n{question_text}",
         parse_mode="Markdown"
     )
 
@@ -272,7 +274,7 @@ async def advance_question(context, user_id):
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ================= RESULT (RESTORED FULLY) =================
+# ================= RESULT =================
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
@@ -314,11 +316,13 @@ async def finish_quiz(context, user_id):
     if s["explanations"]:
         header = "📖 *Simple Explanations*\n\n"
         chunk = header
+
         for exp in s["explanations"]:
             if len(chunk) + len(exp) > 3800:
                 await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
                 chunk = header
             chunk += exp + "\n\n"
+
         if chunk.strip() != header.strip():
             await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
 
