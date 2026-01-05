@@ -51,7 +51,7 @@ sessions = {}
 daily_scores = {}
 current_quiz_date_key = None
 
-# ================= HELPERS =================
+# ================= HELPERS ================
 
 def fetch_csv(url):
     r = requests.get(f"{url}&_ts={int(time.time())}", timeout=15)
