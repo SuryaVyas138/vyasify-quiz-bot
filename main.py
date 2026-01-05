@@ -212,7 +212,7 @@ async def send_question(context, user_id):
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.*\n{question_text}",
+        text=f"*Q{s['index'] + 1}.*{question_text}",
         parse_mode="Markdown"
     )
 
@@ -332,7 +332,7 @@ async def finish_quiz(context, user_id):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if contains_offensive(update.message.text):
-        await update.message.reply_text("❌ Please maintain respectful language.")
+        await update.message.reply_text("❌ Please maintain respectful language. Send Hi to start the QUIZ.")
         return
     await send_greeting(context, update.effective_user.id, update.effective_user.first_name)
 
