@@ -1,6 +1,15 @@
+```python
 #!/usr/bin/env python3
 """
-Quiz bot with fixes and a fallback synchronous send when queues are full.
+Quiz bot with fixes:
+- Ensures cached quiz preload is used
+- Resets Skip debounce per question so Skip button visually disables correctly
+- Records poll_message_id after send (worker and fallback)
+- Fallback synchronous send when queues are full
+- Per-row time/marks/negative parsing and scoring
+- Late-answer handling and metrics
+- Bounded send queues with admin-priority queue
+- Persisted daily_scores to disk
 """
 
 import os
@@ -192,6 +201,7 @@ def normalize_sheet_rows(rows):
         try:
             parsed = datetime.strptime(raw.strip(), "%d-%m-%Y")
         except Exception:
+            # If date parsing fails, skip row
             continue
         r["_date_obj"] = parsed.date()
 
@@ -216,6 +226,11 @@ def normalize_sheet_rows(rows):
                 r["_neg_ratio"] = nr
         except Exception:
             r["_neg_ratio"] = DEFAULT_NEGATIVE_RATIO
+
+        # Ensure question and options exist as strings
+        for k in ("question", "option_a", "option_b", "option_c", "option_d", "correct_option", "explanation"):
+            if k not in r or r.get(k) is None:
+                r[k] = ""
 
         if parse_correct_option(r.get("correct_option")) is None:
             r["_invalid_reason"] = "invalid_correct_option"
@@ -589,6 +604,8 @@ def _treat_late_answer_as_timeout_in_lock(s, user_id):
     s["last_action"] = ("late_answer_treated_as_timeout", time.time())
     s["transitioned"] = True
     s["index"] = s.get("index", 0) + 1
+    # Reset skip debounce for next question (if any)
+    s["skip_disabled"] = False
     return True
 
 
@@ -632,6 +649,8 @@ async def question_timeout_by_handle(context, user_id, q_index, token):
             s["in_question"] = False
             s["timeout_token"] = None
             s["timeout_handle"] = None
+            # Reset skip debounce for next question
+            s["skip_disabled"] = False
             await advance_question(context, user_id)
         except Exception:
             logger.exception("Error in question_timeout_by_handle for user %s", user_id)
@@ -651,6 +670,10 @@ async def send_question(context, user_id):
     q = s["questions"][s["index"]]
     s["current_q_index"] = s["index"]
     s["transitioned"] = False
+
+    # Reset skip debounce for the new question
+    s["skip_disabled"] = False
+    s["poll_message_id"] = None  # clear previous poll id for safety
 
     if q.get("_invalid_reason"):
         metrics["skipped_questions"] += 1
@@ -941,6 +964,8 @@ async def advance_question(context, user_id):
         s["transitioned"] = True
         s["index"] += 1
         s["in_question"] = False
+        # Reset skip debounce for the next question
+        s["skip_disabled"] = False
 
     if s["index"] >= len(s["questions"]):
         await finish_quiz(context, user_id)
@@ -1336,3 +1361,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
