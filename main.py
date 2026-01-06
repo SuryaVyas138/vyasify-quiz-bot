@@ -97,7 +97,7 @@ def record_explanation(session, q, q_no):
     explanation_text = q["explanation"].replace("\\n", "\n")
 
     session["explanations"].append(
-        f"*Q{q_no}.* {question_text}\n"
+        f"*Q{q_no}.* {question_text}\n\n"
         f"📘 _Explanation:_\n"
         f"_{explanation_text}_\n"
         "────────────────────"
