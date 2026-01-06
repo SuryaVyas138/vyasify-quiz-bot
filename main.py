@@ -1,14 +1,14 @@
-### Complete updated `main.py`
+### main.py
 
 ```python
 import os
 import csv
 import time
-import asyncio
 import requests
 import re
 from io import StringIO
 from datetime import datetime, timezone, timedelta
+import logging
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.helpers import escape_markdown
@@ -45,7 +45,7 @@ OFFENSIVE_WORDS = {"fuck", "shit", "bitch", "asshole", "idiot", "stupid"}
 
 QUIZ_CSV_URL = (
     "https://docs.google.com/spreadsheets/d/e/"
-    "2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C"
+    "2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZq8C"
     "/pub?output=csv"
 )
 
@@ -60,6 +60,14 @@ sessions = {}
 daily_scores = {}
 current_quiz_date_key = None
 
+# ================= LOGGING =================
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
 # ================= HELPERS =================
 
 
@@ -68,8 +76,8 @@ def fetch_csv(url):
         r = requests.get(f"{url}&_ts={int(time.time())}", timeout=15)
         r.raise_for_status()
         return list(csv.DictReader(StringIO(r.content.decode("utf-8-sig"))))
-    except Exception:
-        # propagate to caller to handle user-friendly message
+    except Exception as e:
+        logger.exception("Failed to fetch CSV: %s", e)
         raise
 
 
@@ -140,7 +148,7 @@ def record_explanation(session, q, q_no):
 # ================= GREETING =================
 
 
-async def send_greeting(context, user_id, name):
+async def send_greeting(context: ContextTypes.DEFAULT_TYPE, user_id: int, name: str):
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("▶️ Start Today’s Quiz", callback_data="start_quiz")],
@@ -161,19 +169,29 @@ async def send_greeting(context, user_id, name):
         "👇 *Tap below to start today’s quiz*"
     )
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=text,
-        reply_markup=keyboard,
-        parse_mode="Markdown",
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=text,
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.exception("Failed to send greeting to %s: %s", user_id, e)
 
 
-# ================= COMMAND =================
+# ================= COMMANDS =================
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_greeting(context, update.effective_user.id, update.effective_user.first_name)
+    user = update.effective_user
+    if not user:
+        return
+    await send_greeting(context, user.id, user.first_name)
+
+
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("pong")
 
 
 # ================= BUTTON HANDLER =================
@@ -181,16 +199,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if not query:
+        return
     await query.answer()
 
     data = query.data or ""
+    user_id = query.from_user.id
+
     if data == "start_quiz":
-        await start_quiz(context, query.from_user.id, query.from_user.first_name)
+        await start_quiz(context, user_id, query.from_user.first_name)
         return
 
     if data == "how_it_works":
         await context.bot.send_message(
-            chat_id=query.from_user.id,
+            chat_id=user_id,
             text=(
                 "ℹ️ *How the Daily Quiz Works*\n\n"
                 "• 10 exam-oriented questions daily\n"
@@ -210,7 +232,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             return
 
-        user_id = query.from_user.id
         s = sessions.get(user_id)
         if not s:
             await context.bot.send_message(chat_id=user_id, text="❌ You don't have an active quiz right now.")
@@ -221,14 +242,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # ignore stale/invalid skip presses
             return
 
-        # Cancel timer safely
-        timer = s.get("timer")
-        if timer and not timer.done():
-            timer.cancel()
+        # Cancel job safely
+        job = s.get("timer_job")
+        if job:
             try:
-                await timer
-            except asyncio.CancelledError:
-                pass
+                job.schedule_removal()
+            except Exception:
+                logger.debug("Failed to schedule removal of job for user %s", user_id)
 
         # Try to stop the poll message so it doesn't remain open
         try:
@@ -236,7 +256,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.stop_poll(chat_id=user_id, message_id=s["poll_message_id"])
         except Exception:
             # ignore stop_poll errors; poll may already be closed
-            pass
+            logger.debug("stop_poll failed or poll already closed for user %s", user_id)
 
         # Mark skipped and record explanation
         s["skipped"] = s.get("skipped", 0) + 1
@@ -250,7 +270,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= QUIZ START =================
 
 
-async def start_quiz(context, user_id, name):
+async def start_quiz(context: ContextTypes.DEFAULT_TYPE, user_id: int, name: str):
     global current_quiz_date_key, daily_scores
 
     try:
@@ -285,12 +305,12 @@ async def start_quiz(context, user_id, name):
         "score": 0,
         "attempted": 0,
         "wrong": 0,
-        "skipped": 0,  # NEW: explicit skipped counter
+        "skipped": 0,
         "marks": 0.0,
         "start": time.time(),
         "transitioned": False,
         "poll_message_id": None,
-        "timer": None,
+        "timer_job": None,
         "name": name,
         "explanations": [],
     }
@@ -301,7 +321,7 @@ async def start_quiz(context, user_id, name):
 # ================= QUIZ FLOW =================
 
 
-async def send_question(context, user_id):
+async def send_question(context: ContextTypes.DEFAULT_TYPE, user_id: int):
     s = sessions.get(user_id)
     if not s:
         return
@@ -324,11 +344,14 @@ async def send_question(context, user_id):
     ]
 
     # Send question text
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.* {question_text}",
-        parse_mode="MarkdownV2"
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"*Q{s['index'] + 1}.* {question_text}",
+            parse_mode="MarkdownV2"
+        )
+    except Exception as e:
+        logger.exception("Failed to send question text to %s: %s", user_id, e)
 
     # Inline keyboard with Skip button. callback_data includes the question index for validation.
     keyboard = InlineKeyboardMarkup(
@@ -336,17 +359,23 @@ async def send_question(context, user_id):
     )
 
     try:
+        correct_id = max(0, ord(q.get("correct_option", "A").strip().upper()) - 65)
+    except Exception:
+        correct_id = 0
+
+    try:
         poll = await context.bot.send_poll(
             chat_id=user_id,
             question="Choose the correct answer:",
             options=options,
             type="quiz",
-            correct_option_id=max(0, ord(q.get("correct_option", "A").strip().upper()) - 65),
+            correct_option_id=correct_id,
             open_period=q.get("_time_limit", DEFAULT_QUESTION_TIME),
             is_anonymous=False,
             reply_markup=keyboard,
         )
-    except Exception:
+    except Exception as e:
+        logger.exception("Failed to create poll for user %s: %s", user_id, e)
         # If poll creation fails, mark as skipped and move on
         s["skipped"] = s.get("skipped", 0) + 1
         record_explanation(s, q, s["index"] + 1)
@@ -354,12 +383,26 @@ async def send_question(context, user_id):
         return
 
     s["poll_message_id"] = poll.message_id
-    # Use asyncio task for timeout; cancel/await safely elsewhere
-    s["timer"] = asyncio.create_task(question_timeout(context, user_id, s["index"], q.get("_time_limit", DEFAULT_QUESTION_TIME)))
+
+    # Schedule timeout using JobQueue
+    try:
+        job = context.job_queue.run_once(
+            question_timeout_job,
+            when=q.get("_time_limit", DEFAULT_QUESTION_TIME),
+            data={"user_id": user_id, "q_index": s["index"]},
+        )
+        s["timer_job"] = job
+    except Exception as e:
+        logger.exception("Failed to schedule timeout job for user %s: %s", user_id, e)
+        s["timer_job"] = None
 
 
-async def question_timeout(context, user_id, q_index, t):
-    await asyncio.sleep(t)
+async def question_timeout_job(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    data = job.data or {}
+    user_id = data.get("user_id")
+    q_index = data.get("q_index")
+
     s = sessions.get(user_id)
     if not s or s.get("transitioned"):
         return
@@ -367,7 +410,12 @@ async def question_timeout(context, user_id, q_index, t):
     # Count as skipped on timeout
     s["skipped"] = s.get("skipped", 0) + 1
 
-    record_explanation(s, s["questions"][q_index], q_index + 1)
+    # Record explanation for the timed-out question
+    try:
+        record_explanation(s, s["questions"][q_index], q_index + 1)
+    except Exception:
+        logger.exception("Failed to record explanation on timeout for user %s", user_id)
+
     await advance_question(context, user_id)
 
 
@@ -377,18 +425,26 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return
 
-    s = sessions.get(user.id)
+    user_id = user.id
+    s = sessions.get(user_id)
     if not s or s.get("transitioned"):
         return
 
-    # cancel timer safely
-    timer = s.get("timer")
-    if timer and not timer.done():
-        timer.cancel()
+    # Cancel scheduled job safely
+    job = s.get("timer_job")
+    if job:
         try:
-            await timer
-        except asyncio.CancelledError:
-            pass
+            job.schedule_removal()
+        except Exception:
+            logger.debug("Failed to schedule removal of job for user %s", user_id)
+        s["timer_job"] = None
+
+    # Try to stop the poll so it doesn't remain open
+    try:
+        if s.get("poll_message_id"):
+            await context.bot.stop_poll(chat_id=user_id, message_id=s["poll_message_id"])
+    except Exception:
+        logger.debug("stop_poll failed or poll already closed for user %s", user_id)
 
     q = s["questions"][s["index"]]
     s["attempted"] += 1
@@ -398,7 +454,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # no option selected; treat as skip
         s["skipped"] = s.get("skipped", 0) + 1
         record_explanation(s, q, s["index"] + 1)
-        await advance_question(context, user.id)
+        await advance_question(context, user_id)
         return
 
     selected = option_ids[0]
@@ -415,10 +471,10 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s["marks"] -= DEFAULT_MARKS_PER_QUESTION * DEFAULT_NEGATIVE_RATIO
 
     record_explanation(s, q, s["index"] + 1)
-    await advance_question(context, user.id)
+    await advance_question(context, user_id)
 
 
-async def advance_question(context, user_id):
+async def advance_question(context: ContextTypes.DEFAULT_TYPE, user_id: int):
     s = sessions.get(user_id)
     if not s:
         return
@@ -433,20 +489,25 @@ async def advance_question(context, user_id):
         await finish_quiz(context, user_id)
         return
 
-    await asyncio.sleep(TRANSITION_DELAY)
+    await asyncio_sleep_safe(TRANSITION_DELAY)
     await send_question(context, user_id)
+
+
+# small helper to await asyncio.sleep without importing asyncio in many places
+async def asyncio_sleep_safe(t: float):
+    import asyncio
+    await asyncio.sleep(t)
 
 
 # ================= RESULT =================
 
 
-async def finish_quiz(context, user_id):
+async def finish_quiz(context: ContextTypes.DEFAULT_TYPE, user_id: int):
     s = sessions.get(user_id)
     if not s:
         return
 
     total = len(s["questions"])
-    # skipped is tracked explicitly (timeouts and skip button)
     skipped = s.get("skipped", 0)
     time_taken = int(time.time() - s["start"])
 
@@ -464,21 +525,24 @@ async def finish_quiz(context, user_id):
         m, sec = divmod(r["time"], 60)
         leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n"
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=(
-            "🏁 *Quiz Finished!*\n\n"
-            f"📝 Attempted: {s['attempted']}/{total}\n"
-            f"✅ Correct: {s['score']}\n"
-            f"❌ Wrong: {s['wrong']}\n"
-            f"⏭ Skipped: {skipped}\n"
-            f"🎯 Marks: {round(s['marks'],2)}\n"
-            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
-            "🏆 *Daily Leaderboard (Top 10)*\n"
-            f"{leaderboard}"
-        ),
-        parse_mode="Markdown"
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                "🏁 *Quiz Finished!*\n\n"
+                f"📝 Attempted: {s['attempted']}/{total}\n"
+                f"✅ Correct: {s['score']}\n"
+                f"❌ Wrong: {s['wrong']}\n"
+                f"⏭ Skipped: {skipped}\n"
+                f"🎯 Marks: {round(s['marks'],2)}\n"
+                f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
+                "🏆 *Daily Leaderboard (Top 10)*\n"
+                f"{leaderboard}"
+            ),
+            parse_mode="Markdown"
+        )
+    except Exception:
+        logger.exception("Failed to send finish message to %s", user_id)
 
     if s["explanations"]:
         header = "📖 *Simple Explanations*\n\n"
@@ -486,15 +550,28 @@ async def finish_quiz(context, user_id):
 
         for exp in s["explanations"]:
             if len(chunk) + len(exp) > 3800:
-                await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
+                try:
+                    await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
+                except Exception:
+                    logger.exception("Failed to send explanation chunk to %s", user_id)
                 chunk = header
             chunk += exp + "\n\n"
 
         if chunk.strip() != header.strip():
-            await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
+            try:
+                await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
+            except Exception:
+                logger.exception("Failed to send final explanation chunk to %s", user_id)
 
     # cleanup
     try:
+        # cancel any remaining job
+        job = s.get("timer_job")
+        if job:
+            try:
+                job.schedule_removal()
+            except Exception:
+                pass
         del sessions[user_id]
     except KeyError:
         pass
@@ -504,7 +581,9 @@ async def finish_quiz(context, user_id):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text if update.message else ""
+    if not update.message:
+        return
+    text = update.message.text or ""
     if contains_offensive(text):
         await update.message.reply_text("❌ Please maintain respectful language. Send Hi to start the QUIZ.")
         return
@@ -515,12 +594,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    from telegram import __version__ as tg_version
+
+    logger.info("Starting bot, python-telegram-bot version: %s", tg_version)
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(PollAnswerHandler(handle_answer))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.run_polling()
+
+    try:
+        logger.info("Running polling...")
+        app.run_polling()
+    except Exception as e:
+        logger.exception("Bot crashed on run_polling: %s", e)
 
 
 if __name__ == "__main__":
