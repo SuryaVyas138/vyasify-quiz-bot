@@ -104,6 +104,49 @@ def skip_keyboard(q_index):
         [InlineKeyboardButton("⏭ Skip Question", callback_data=f"skip_{q_index}")]
     ])
 
+# ================= INTRO ANIMATION =================
+
+async def quiz_intro_animation(context, user_id, topic):
+    msg = await context.bot.send_message(
+        chat_id=user_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready…*\n\n"
+            "3️⃣"
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.8)
+    await context.bot.edit_message_text(
+        chat_id=user_id,
+        message_id=msg.message_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready…*\n\n"
+            "3️⃣\n"
+            "2️⃣"
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.8)
+    await context.bot.edit_message_text(
+        chat_id=user_id,
+        message_id=msg.message_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready…*\n\n"
+            "3️⃣...\n"
+            "2️⃣..\n"
+            "1️⃣..."
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.7)
+    await context.bot.delete_message(chat_id=user_id, message_id=msg.message_id)
+
 # ================= EXPLANATION RECORDER =================
 
 def record_explanation(session, q, q_no):
@@ -249,6 +292,9 @@ async def start_quiz(context, user_id, name):
         current_quiz_date_key = quiz_date_key
 
     questions = [r for r in rows if r["_date_obj"] == quiz_date]
+
+    topic = questions[0].get("topic") or "UPSC Prelims Mixed Practice"
+    await quiz_intro_animation(context, user_id, topic)
 
     sessions[user_id] = {
         "questions": questions,
