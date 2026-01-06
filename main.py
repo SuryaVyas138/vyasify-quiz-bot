@@ -97,11 +97,11 @@ def record_explanation(session, q, q_no):
     explanation_text = q["explanation"].replace("\\n", "\n")
 
     session["explanations"].append(
-        f"*Q{q_no}.* {question_text}\n"
+        f"*Q{q_no}.* {question_text}\n\n"
         f"*📘 Explanation:* {explanation_text}"
     )
 
-# ================= GREETING (UNCHANGED) =================
+# ================= GREETING =================
 
 async def send_greeting(context, user_id, name):
     keyboard = InlineKeyboardMarkup([
@@ -222,9 +222,12 @@ async def send_question(context, user_id):
     s["transitioned"] = False
     q = s["questions"][s["index"]]
 
+    # 🔑 ONLY ADDITION: fix escaped newlines
+    question_text = q["question"].replace("\\n", "\n")
+
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"*Q{s['index'] + 1}.* {q['question']}",
+        text=f"*Q{s['index'] + 1}.* {question_text}",
         parse_mode="Markdown",
         reply_markup=skip_keyboard(s["index"])
     )
@@ -290,7 +293,7 @@ async def advance_question(context, user_id):
     await asyncio.sleep(TRANSITION_DELAY)
     await send_question(context, user_id)
 
-# ================= RESULT (RESTORED FULLY) =================
+# ================= RESULT =================
 
 async def finish_quiz(context, user_id):
     s = sessions[user_id]
@@ -311,19 +314,19 @@ async def finish_quiz(context, user_id):
     leaderboard = ""
     for i, r in enumerate(ranked, 1):
         m, sec = divmod(r["time"], 60)
-        leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n"
+        leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n\n"
 
     await context.bot.send_message(
         chat_id=user_id,
         text=(
             "🏁 *Quiz Finished!*\n\n"
-            f"📝 Attempted: {s['attempted']}/{total}\n"
-            f"✅ Correct: {s['score']}\n"
-            f"❌ Wrong: {s['wrong']}\n"
-            f"⏭ Skipped: {skipped}\n"
-            f"🎯 Marks: {round(s['marks'],2)}\n"
+            f"📝 Attempted: {s['attempted']}/{total}\n\n"
+            f"✅ Correct: {s['score']}\n\n"
+            f"❌ Wrong: {s['wrong']}\n\n"
+            f"⏭ Skipped: {skipped}\n\n"
+            f"🎯 Marks: {round(s['marks'],2)}\n\n"
             f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
-            "🏆 *Daily Leaderboard (Top 10)*\n"
+            "🏆 *Daily Leaderboard (Top 10)*\n\n"
             f"{leaderboard}"
         ),
         parse_mode="Markdown"
@@ -337,7 +340,7 @@ async def finish_quiz(context, user_id):
             if len(chunk) + len(exp) > 3800:
                 await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
                 chunk = header
-            chunk += exp + "\n\n"
+            chunk += exp + "\n\n\n"
 
         if chunk.strip() != header.strip():
             await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
