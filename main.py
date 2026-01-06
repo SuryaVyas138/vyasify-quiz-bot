@@ -87,7 +87,7 @@ def skip_keyboard(q_index):
         [InlineKeyboardButton("⏭ Skip Question", callback_data=f"skip_{q_index}")]
     ])
 
-# ================= EXPLANATION RECORDER (REFINED ONLY) =================
+# ================= EXPLANATION RECORDER =================
 
 def record_explanation(session, q, q_no):
     if len(session["explanations"]) >= q_no:
@@ -97,9 +97,9 @@ def record_explanation(session, q, q_no):
     explanation_text = q["explanation"].replace("\\n", "\n")
 
     session["explanations"].append(
-        f"_*Q{q_no}.* {question_text}_\n"
-        f"📘 *Explanation:*\n"
-        f"**{explanation_text}**\n"
+        f"*Q{q_no}.* {question_text}\n"
+        f"📘 _Explanation:_\n"
+        f"_{explanation_text}_\n"
         "────────────────────"
     )
 
@@ -164,6 +164,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s = sessions.get(user_id)
 
         if not s or s["transitioned"]:
+            return
+
+        skip_q_index = int(query.data.split("_")[1])
+        if skip_q_index != s["index"]:
             return
 
         if s["timer"]:
