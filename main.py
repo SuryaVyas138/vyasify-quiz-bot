@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import os
 import csv
-import time
-import asyncio
 import requests
 from io import StringIO
 
@@ -19,27 +17,20 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ================= CONFIG =================
+# ---------------- CONFIG ----------------
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN environment variable not set")
+    raise RuntimeError("BOT_TOKEN is not set")
 
-QUIZ_CSV_URL = (
-    "https://docs.google.com/spreadsheets/d/e/"
-    "2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C"
-    "/pub?output=csv"
-)
+QUIZ_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
 
-QUESTION_TIME = 20
-TRANSITION_DELAY = 1
+# ---------------- DATA ----------------
 
-# ================= STATE =================
-
-quiz_questions = []
+quiz = []
 sessions = {}
 
-# ================= HELPERS =================
+# ---------------- HELPERS ----------------
 
 def load_quiz():
     r = requests.get(QUIZ_CSV_URL, timeout=15)
@@ -52,147 +43,81 @@ def correct_index(opt):
     return None
 
 def skip_keyboard():
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⏭ Skip", callback_data="skip")]]
-    )
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Skip", callback_data="skip")]
+    ])
 
-# ================= HANDLERS =================
+# ---------------- HANDLERS ----------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_user.id,
-        text=(
-            "📘 Welcome to *Vyasify Daily Quiz*\n\n"
-            "• UPSC Prelims focused\n"
-            "• Timed questions\n"
-            "• Negative marking\n\n"
-            "Tap below to start 👇"
-        ),
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("▶️ Start Quiz", callback_data="start_quiz")]]
-        ),
-        parse_mode="Markdown",
+        text="Welcome to Vyasify Quiz.\n\nPress Start to begin.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Start Quiz", callback_data="start")]
+        ])
     )
 
 async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    await update.callback_query.answer()
+    uid = update.callback_query.from_user.id
+    sessions[uid] = {"i": 0}
+    await send_question(context, uid)
 
-    user_id = query.from_user.id
-
-    sessions[user_id] = {
-        "index": 0,
-        "attempted": 0,
-        "wrong": 0,
-        "skipped": 0,
-        "marks": 0.0,
-        "start_time": time.time(),
-    }
-
-    await send_question(context, user_id)
-
-async def send_question(context, user_id):
-    session = sessions.get(user_id)
-    if not session:
+async def send_question(context, uid):
+    s = sessions.get(uid)
+    if not s:
         return
 
-    idx = session["index"]
-
-    if idx >= len(quiz_questions):
-        await finish_quiz(context, user_id)
+    if s["i"] >= len(quiz):
+        await context.bot.send_message(chat_id=uid, text="Quiz finished.")
+        sessions.pop(uid, None)
         return
 
-    q = quiz_questions[idx]
+    q = quiz[s["i"]]
 
     await context.bot.send_poll(
-        chat_id=user_id,
-        question=f"Q{idx + 1}. {q['question']}",
-        options=[
-            q["option_a"],
-            q["option_b"],
-            q["option_c"],
-            q["option_d"],
-        ],
+        chat_id=uid,
+        question=q["question"],
+        options=[q["option_a"], q["option_b"], q["option_c"], q["option_d"]],
         type="quiz",
         correct_option_id=correct_index(q["correct_option"]),
         is_anonymous=False,
-        open_period=QUESTION_TIME,
         reply_markup=skip_keyboard(),
     )
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.poll_answer.user.id
-    session = sessions.get(user_id)
-    if not session:
+    uid = update.poll_answer.user.id
+    if uid not in sessions:
         return
-
-    q = quiz_questions[session["index"]]
-    selected = update.poll_answer.option_ids[0]
-    correct = correct_index(q["correct_option"])
-
-    session["attempted"] += 1
-    if selected == correct:
-        session["marks"] += 2
-    else:
-        session["wrong"] += 1
-        session["marks"] -= 2 / 3
-
-    session["index"] += 1
-    await asyncio.sleep(TRANSITION_DELAY)
-    await send_question(context, user_id)
+    sessions[uid]["i"] += 1
+    await send_question(context, uid)
 
 async def handle_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = query.from_user.id
-    session = sessions.get(user_id)
-    if not session:
+    await update.callback_query.answer()
+    uid = update.callback_query.from_user.id
+    if uid not in sessions:
         return
+    sessions[uid]["i"] += 1
+    await send_question(context, uid)
 
-    session["skipped"] += 1
-    session["index"] += 1
-
-    await asyncio.sleep(TRANSITION_DELAY)
-    await send_question(context, user_id)
-
-async def finish_quiz(context, user_id):
-    session = sessions.pop(user_id, None)
-    if not session:
-        return
-
-    time_taken = int(time.time() - session["start_time"])
-
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=(
-            "🏁 *Quiz Finished!*\n\n"
-            f"Attempted: {session['attempted']}\n"
-            f"Wrong: {session['wrong']}\n"
-            f"Skipped: {session['skipped']}\n"
-            f"Marks: {round(session['marks'], 2)}\n"
-            f"Time Taken: {time_taken} sec"
-        ),
-        parse_mode="Markdown",
-    )
-
-# ================= MAIN =================
+# ---------------- MAIN ----------------
 
 def main():
-    global quiz_questions
-    quiz_questions = load_quiz()
+    global quiz
+    quiz = load_quiz()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(start_quiz, pattern="start_quiz"))
+    app.add_handler(CallbackQueryHandler(start_quiz, pattern="start"))
     app.add_handler(CallbackQueryHandler(handle_skip, pattern="skip"))
     app.add_handler(PollAnswerHandler(handle_answer))
 
-    # 🚨 REQUIRED FOR QUIZ BOTS
     app.run_polling(
         allowed_updates=["message", "callback_query", "poll_answer"]
     )
 
 if __name__ == "__main__":
     main()
+0.
