@@ -319,14 +319,14 @@ async def finish_quiz(context, user_id):
     await context.bot.send_message(
         chat_id=user_id,
         text=(
-            "🏁 *Quiz Finished!*\n\n"
-            f"📝 Attempted: {s['attempted']}/{total}\n\n"
-            f"✅ Correct: {s['score']}\n\n"
-            f"❌ Wrong: {s['wrong']}\n\n"
-            f"⏭ Skipped: {skipped}\n\n"
-            f"🎯 Marks: {round(s['marks'],2)}\n\n"
-            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
-            "🏆 *Daily Leaderboard (Top 10)*\n\n"
+            "🏁 *Quiz Finished!*\n"
+            f"📝 Attempted: {s['attempted']}/{total}\n"
+            f"✅ Correct: {s['score']}\n"
+            f"❌ Wrong: {s['wrong']}\n"
+            f"⏭ Skipped: {skipped}\n"
+            f"🎯 Marks: {round(s['marks'],2)}\n"
+            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n"
+            "🏆 *Daily Leaderboard (Top 10)*\n"
             f"{leaderboard}"
         ),
         parse_mode="Markdown"
