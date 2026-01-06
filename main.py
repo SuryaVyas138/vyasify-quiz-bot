@@ -1,16 +1,6 @@
-```python
 #!/usr/bin/env python3
 """
-Quiz bot with fixes:
-- Late-answer handling to preserve Attempted+Skipped == Total
-- Per-row time, marks, negative_ratio parsing and scoring
-- Skip button debounce and visual removal
-- Rate-limited late-answer notifications
-- Bounded send queues with admin-priority queue
-- Send worker with jitter and retry/backoff
-- Persisted daily_scores to disk to survive restarts
-- Force-preload final-question guard
-- In-process cached quiz preload (no per-user CSV fetch)
+Quiz bot with fixes and a fallback synchronous send when queues are full.
 """
 
 import os
@@ -343,6 +333,7 @@ async def send_with_retries(bot, chat_id, send_coro_factory, max_retries=SEND_RE
 
 async def _send_worker_loop(app):
     bot = app.bot
+    logger.info("BACKGROUND: send worker started")
     while not _shutdown_event.is_set():
         job = None
         try:
@@ -755,11 +746,25 @@ async def send_question(context, user_id):
     priority = "user"
     enqueued = await enqueue_send_poll(user_id, factory, session_user_id=user_id, priority=priority)
     if not enqueued:
+        # Fallback: attempt synchronous send with retries so user still receives the poll
+        logger.warning("SEND-FALLBACK: queue full for user %s; attempting synchronous send", user_id)
         try:
-            await context.bot.send_message(chat_id=user_id, text="⚠️ High load right now. Please try again in a few seconds.")
+            result = await send_with_retries(context.bot, user_id, factory)
+            # record poll_message_id into session
+            if result:
+                try:
+                    async with s["lock"]:
+                        s["poll_message_id"] = getattr(result, "message_id", None)
+                        s["last_activity"] = time.time()
+                except Exception:
+                    logger.exception("Failed to set poll_message_id after fallback send for user %s", user_id)
         except Exception:
-            pass
-        return
+            logger.exception("SEND-FALLBACK failed for user %s", user_id)
+            try:
+                await context.bot.send_message(chat_id=user_id, text="⚠️ High load right now. Please try again in a few seconds.")
+            except Exception:
+                pass
+            return
 
     s["in_question"] = True
     loop = asyncio.get_running_loop()
@@ -1167,6 +1172,7 @@ def _session_integrity_check():
 
 async def daily_preload_task(app):
     global current_quiz_date_key
+    logger.info("BACKGROUND: daily preload task started")
     while not _shutdown_event.is_set():
         wait_seconds = await _wait_until_next_cutoff()
         logger.info("Preload task sleeping for %.0f seconds until next cutoff", wait_seconds)
@@ -1189,6 +1195,7 @@ async def daily_preload_task(app):
 
 
 async def cleanup_sessions_task():
+    logger.info("BACKGROUND: cleanup task started")
     while not _shutdown_event.is_set():
         now_ts = time.time()
         to_remove = []
@@ -1307,7 +1314,9 @@ def main():
     app.add_handler(CommandHandler("force_preload", admin_force_preload))
 
     async def _start_background_tasks(application):
+        # preload and start workers
         await preload_quiz_if_needed()
+        logger.info("BACKGROUND: starting send worker, preload and cleanup tasks")
         t_send = asyncio.create_task(_send_worker_loop(application))
         t_preload = asyncio.create_task(daily_preload_task(application))
         t_cleanup = asyncio.create_task(cleanup_sessions_task())
@@ -1327,4 +1336,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
