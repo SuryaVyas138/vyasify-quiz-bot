@@ -325,7 +325,7 @@ async def finish_quiz(context, user_id):
             f"❌ Wrong: {s['wrong']}\n"
             f"⏭ Skipped: {skipped}\n"
             f"🎯 Marks: {round(s['marks'],2)}\n"
-            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n"
+            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
             "🏆 *Daily Leaderboard (Top 10)*\n"
             f"{leaderboard}"
         ),
@@ -340,7 +340,7 @@ async def finish_quiz(context, user_id):
             if len(chunk) + len(exp) > 3800:
                 await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
                 chunk = header
-            chunk += exp + "\n"
+            chunk += exp + "\n\n"
 
         if chunk.strip() != header.strip():
             await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
