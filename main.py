@@ -87,7 +87,7 @@ def skip_keyboard(q_index):
         [InlineKeyboardButton("⏭ Skip Question", callback_data=f"skip_{q_index}")]
     ])
 
-# ================= EXPLANATION RECORDER =================
+# ================= EXPLANATION RECORDER (REFINED ONLY) =================
 
 def record_explanation(session, q, q_no):
     if len(session["explanations"]) >= q_no:
@@ -97,8 +97,10 @@ def record_explanation(session, q, q_no):
     explanation_text = q["explanation"].replace("\\n", "\n")
 
     session["explanations"].append(
-        f"*Q{q_no}.* {question_text}\n\n"
-        f"*📘 Explanation:* {explanation_text}"
+        f"_*Q{q_no}.* {question_text}_\n"
+        f"📘 *Explanation:*\n"
+        f"**{explanation_text}**\n"
+        "────────────────────"
     )
 
 # ================= GREETING =================
@@ -221,8 +223,6 @@ async def send_question(context, user_id):
 
     s["transitioned"] = False
     q = s["questions"][s["index"]]
-
-    # 🔑 ONLY ADDITION: fix escaped newlines
     question_text = q["question"].replace("\\n", "\n")
 
     await context.bot.send_message(
