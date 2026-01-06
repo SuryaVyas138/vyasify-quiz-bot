@@ -26,7 +26,13 @@ def now_ist():
     return datetime.now(IST)
 
 def today_date():
-    return now_ist().date()
+    """
+    Returns effective quiz date based on 17:00 IST reset.
+    """
+    now = now_ist()
+    if now.hour < 17:
+        return now.date() - timedelta(days=1)
+    return now.date()
 
 def quiz_day_key():
     """
