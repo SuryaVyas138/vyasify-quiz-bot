@@ -26,19 +26,12 @@ def now_ist():
     return datetime.now(IST)
 
 def today_date():
-    """
-    Returns effective quiz date based on 17:00 IST reset.
-    """
     now = now_ist()
     if now.hour < 17:
         return now.date() - timedelta(days=1)
     return now.date()
 
 def quiz_day_key():
-    """
-    Returns quiz day date based on 17:00 IST reset.
-    Quiz day changes at 17:00 IST.
-    """
     now = now_ist()
     if now.hour < 17:
         return (now.date() - timedelta(days=1)).isoformat()
@@ -111,40 +104,100 @@ async def quiz_intro_animation(context, user_id, topic):
         chat_id=user_id,
         text=(
             "📚 *Topic:* " + topic + "\n\n"
-            "🚀 *Get ready…*\n\n"
-            "3️⃣"
+            "🚀 *Get ready in* 3️⃣."
         ),
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(0.4)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
         text=(
             "📚 *Topic:* " + topic + "\n\n"
-            "🚀 *Get ready…*\n\n"
-            "3️⃣\n"
-            "2️⃣"
+            "🚀 *Get ready in* 3️⃣.."
         ),
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(0.4)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
         text=(
             "📚 *Topic:* " + topic + "\n\n"
-            "🚀 *Get ready…*\n\n"
-            "3️⃣...\n"
-            "2️⃣..\n"
-            "1️⃣..."
+            "🚀 *Get ready in* 3️⃣..."
         ),
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.7)
+    await asyncio.sleep(0.6)
+    await context.bot.edit_message_text(
+        chat_id=user_id,
+        message_id=msg.message_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready in* 2️⃣."
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.4)
+    await context.bot.edit_message_text(
+        chat_id=user_id,
+        message_id=msg.message_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready in* 2️⃣.."
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.4)
+    await context.bot.edit_message_text(
+        chat_id=user_id,
+        message_id=msg.message_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready in* 2️⃣..."
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.6)
+    await context.bot.edit_message_text(
+        chat_id=user_id,
+        message_id=msg.message_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready in* 1️⃣."
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.4)
+    await context.bot.edit_message_text(
+        chat_id=user_id,
+        message_id=msg.message_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready in* 1️⃣.."
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.4)
+    await context.bot.edit_message_text(
+        chat_id=user_id,
+        message_id=msg.message_id,
+        text=(
+            "📚 *Topic:* " + topic + "\n\n"
+            "🚀 *Get ready in* 1️⃣..."
+        ),
+        parse_mode="Markdown"
+    )
+
+    await asyncio.sleep(0.5)
     await context.bot.delete_message(chat_id=user_id, message_id=msg.message_id)
 
 # ================= EXPLANATION RECORDER =================
