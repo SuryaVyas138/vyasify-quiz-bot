@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Quiz bot — immediate-first-question fast path to avoid "queued" delay.
-"""
-
 import os
 import csv
 import time
@@ -32,11 +27,11 @@ from telegram.ext import (
 )
 from telegram.error import RetryAfter, TimedOut, NetworkError, TelegramError
 
-# ================= LOGGING =================
+# ---------------- logging ----------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# ================= TIMEZONE =================
+# ---------------- timezone ----------------
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -44,7 +39,7 @@ def now_ist():
     return datetime.now(IST)
 
 
-# ================= CONFIG =================
+# ---------------- config ----------------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN and "test" not in sys.argv:
     raise RuntimeError("BOT_TOKEN environment variable is required")
@@ -70,7 +65,7 @@ if not QUIZ_CSV_URL:
     )
 
 DEFAULT_QUESTION_TIME = int(os.environ.get("DEFAULT_QUESTION_TIME", "20"))
-TRANSITION_DELAY = float(os.environ.get("TRANSITION_DELAY", "1"))
+TRANSITION_DELAY = float(os.environ.get("TRANSITION_DELAY", "0.8"))
 DEFAULT_MARKS_PER_QUESTION = float(os.environ.get("DEFAULT_MARKS_PER_QUESTION", "2"))
 DEFAULT_NEGATIVE_RATIO = float(os.environ.get("DEFAULT_NEGATIVE_RATIO", str(1 / 3)))
 
@@ -83,9 +78,8 @@ CSV_FETCH_BACKOFF_BASE = float(os.environ.get("CSV_FETCH_BACKOFF_BASE", "1.0"))
 FORCE_PRELOAD_FINAL_WINDOW_SECONDS = int(os.environ.get("FORCE_PRELOAD_FINAL_WINDOW_SECONDS", "30"))
 RATE_LIMIT_LATE_MSG_SECONDS = float(os.environ.get("RATE_LIMIT_LATE_MSG_SECONDS", "5.0"))
 
-# Throttling / send queue config
+# Throttling / send queue config (kept for scale but not used for immediate sends)
 MAX_CONCURRENT_SENDS = int(os.environ.get("MAX_CONCURRENT_SENDS", "8"))
-# Reduced jitter for responsiveness
 SEND_JITTER_MAX = float(os.environ.get("SEND_JITTER_MAX", "0.12"))
 SEND_RETRY_MAX = int(os.environ.get("SEND_RETRY_MAX", "4"))
 SEND_BASE_BACKOFF = float(os.environ.get("SEND_BASE_BACKOFF", "0.25"))
@@ -94,35 +88,26 @@ SEND_BASE_BACKOFF = float(os.environ.get("SEND_BASE_BACKOFF", "0.25"))
 MAX_USER_QUEUE_SIZE = int(os.environ.get("MAX_USER_QUEUE_SIZE", "500"))
 MAX_ADMIN_QUEUE_SIZE = int(os.environ.get("MAX_ADMIN_QUEUE_SIZE", "200"))
 
-# Persistence file for daily_scores
 DAILY_SCORES_FILE = os.environ.get("DAILY_SCORES_FILE", "daily_scores.json")
 
-# How many initial questions to attempt fast-path (1 = only first)
-FASTPATH_INITIAL_QUESTIONS = int(os.environ.get("FASTPATH_INITIAL_QUESTIONS", "1"))
-
-# ================= STATE (in-process) =================
-sessions = {}  # user_id -> session dict (ephemeral)
-daily_scores = {}  # user_id -> {"name", "score", "time", "quiz_date_key"}
+# ---------------- state ----------------
+sessions = {}  # user_id -> session dict
+daily_scores = {}
 current_quiz_date_key = None
 
-# Cached normalized questions keyed by quiz_date_key
-_cached_quizzes = {}  # quiz_date_key -> list of normalized rows
+_cached_quizzes = {}
 _cached_quiz_lock = asyncio.Lock()
 
-# Send queues and semaphore to throttle outgoing Telegram API calls
 _send_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SENDS)
 _send_queue_user = asyncio.Queue(maxsize=MAX_USER_QUEUE_SIZE)
 _send_queue_admin = asyncio.Queue(maxsize=MAX_ADMIN_QUEUE_SIZE)
 _background_tasks = []
 _shutdown_event = asyncio.Event()
 
-# Locks
 _update_lock = asyncio.Lock()
 
-# Metrics
 metrics = {
     "skipped_questions": 0,
-    "late_answers_rejected": 0,
     "late_answers_treated_as_timeout": 0,
     "preload_failures": 0,
     "timeout_lateness_count": 0,
@@ -131,10 +116,9 @@ metrics = {
     "send_failures": 0,
     "queue_rejections_user": 0,
     "queue_rejections_admin": 0,
-    "send_fastpath_count": 0,
 }
 
-# ================= HELPERS =================
+# ---------------- helpers ----------------
 
 
 def fetch_csv(url):
@@ -209,7 +193,6 @@ def normalize_sheet_rows(rows):
         except Exception:
             r["_neg_ratio"] = DEFAULT_NEGATIVE_RATIO
 
-        # Ensure string fields present
         for k in ("question", "option_a", "option_b", "option_c", "option_d", "correct_option", "explanation"):
             if k not in r or r.get(k) is None:
                 r[k] = ""
@@ -233,7 +216,7 @@ def get_effective_quiz_date(rows):
     return valid[-1] if valid else None
 
 
-# ================= CACHED PRELOADS & PERSISTENCE =================
+# ---------------- preload & persistence ----------------
 
 
 async def preload_quiz_if_needed():
@@ -284,7 +267,7 @@ def persist_daily_scores_to_disk():
         logger.exception("Failed to persist daily_scores to disk")
 
 
-# ================= SEND QUEUE & WORKER (admin priority) =================
+# ---------------- send helpers ----------------
 
 
 async def send_with_retries(bot, chat_id, send_coro_factory, max_retries=SEND_RETRY_MAX):
@@ -317,53 +300,11 @@ async def send_with_retries(bot, chat_id, send_coro_factory, max_retries=SEND_RE
     raise RuntimeError("Exceeded send retries")
 
 
-async def _send_worker_loop(app):
-    bot = app.bot
-    logger.info("BACKGROUND: send worker started")
-    while not _shutdown_event.is_set():
-        job = None
-        try:
-            try:
-                job = _send_queue_admin.get_nowait()
-            except asyncio.QueueEmpty:
-                try:
-                    job = await asyncio.wait_for(_send_queue_user.get(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    continue
-            if not job:
-                continue
-
-            result = None
-            try:
-                result = await send_with_retries(bot, job["chat_id"], job["factory"])
-            except Exception:
-                logger.exception("Failed to send job: %s", job.get("type"))
-            finally:
-                try:
-                    (_send_queue_admin if job.get("priority") == "admin" else _send_queue_user).task_done()
-                except Exception:
-                    pass
-
-            if job.get("type") == "poll" and job.get("session_user_id") and result is not None:
-                uid = job["session_user_id"]
-                s = sessions.get(uid)
-                if s:
-                    try:
-                        async with s["lock"]:
-                            s["poll_message_id"] = getattr(result, "message_id", None)
-                            s["last_activity"] = time.time()
-                    except Exception:
-                        logger.exception("Failed to set poll_message_id for user %s after send", uid)
-        except Exception:
-            logger.exception("Unexpected error in send worker loop")
-
-
 async def enqueue_send_poll(chat_id, factory, session_user_id=None, priority="user"):
     job = {"type": "poll", "chat_id": chat_id, "factory": factory, "session_user_id": session_user_id, "priority": priority}
     try:
         queue = _send_queue_admin if priority == "admin" else _send_queue_user
         queue.put_nowait(job)
-        logger.debug("SEND-ENQUEUE: enqueued poll for chat %s priority=%s", chat_id, priority)
         return True
     except asyncio.QueueFull:
         if priority == "admin":
@@ -374,24 +315,11 @@ async def enqueue_send_poll(chat_id, factory, session_user_id=None, priority="us
         return False
 
 
-# ================= EXPLANATION RECORDER =================
+# ---------------- UI helpers ----------------
 
 
-def record_explanation(session, q, q_no, reason=None):
-    if any(e.get("q_no") == q_no for e in session["explanations"]):
-        return
-    question_text = q.get("question", "").replace("\\n", "\n")
-    explanation_text = q.get("explanation", "").replace("\\n", "\n")
-    if reason:
-        explanation_text = f"{reason}\n\n{explanation_text}"
-    session["explanations"].append({
-        "q_no": q_no,
-        "question": question_text,
-        "explanation": explanation_text,
-    })
-
-
-# ================= GREETING & UI (HTML-safe) =================
+def _skip_keyboard():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("⏭ Skip", callback_data="skip_q")]])
 
 
 async def send_greeting(context, user_id, name):
@@ -414,11 +342,7 @@ async def send_greeting(context, user_id, name):
     await context.bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="HTML")
 
 
-def _skip_keyboard():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("⏭ Skip", callback_data="skip_q")]])
-
-
-# ================= COMMANDS & HANDLERS =================
+# ---------------- core quiz flow ----------------
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -454,13 +378,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# ================= QUIZ START =================
-
-
 async def start_quiz(context, user_id, name):
     global current_quiz_date_key, _cached_quizzes
 
-    # Ensure preload has happened
     async with _cached_quiz_lock:
         if not current_quiz_date_key or current_quiz_date_key not in _cached_quizzes:
             await preload_quiz_if_needed()
@@ -503,15 +423,9 @@ async def start_quiz(context, user_id, name):
         "_advancing": False,
     }
 
-    # Send immediate confirmation but avoid implying a queue delay
+    # Immediately send the first question synchronously (no "queued" message)
     try:
-        await context.bot.send_message(chat_id=user_id, text="✅ Quiz starting now. Sending first question...")
-    except Exception:
-        pass
-
-    # Fast-path: send the first question synchronously so user sees it immediately
-    try:
-        await send_question(context, user_id, fastpath=True)
+        await send_question(context, user_id, immediate=True)
     except Exception:
         logger.exception("Error while starting quiz for user %s", user_id)
         sessions.pop(user_id, None)
@@ -519,9 +433,6 @@ async def start_quiz(context, user_id, name):
             await context.bot.send_message(chat_id=user_id, text="❌ An error occurred. Please try again later.")
         except Exception:
             pass
-
-
-# ================= QUIZ FLOW =================
 
 
 def _cancel_timeout_handle(s):
@@ -605,10 +516,24 @@ async def question_timeout_by_handle(context, user_id, q_index, token):
     await advance_question(context, user_id)
 
 
-async def send_question(context, user_id, fastpath=False):
+def record_explanation(session, q, q_no, reason=None):
+    if any(e.get("q_no") == q_no for e in session["explanations"]):
+        return
+    question_text = q.get("question", "").replace("\\n", "\n")
+    explanation_text = q.get("explanation", "").replace("\\n", "\n")
+    if reason:
+        explanation_text = f"{reason}\n\n{explanation_text}"
+    session["explanations"].append({
+        "q_no": q_no,
+        "question": question_text,
+        "explanation": explanation_text,
+    })
+
+
+async def send_question(context, user_id, immediate=False):
     """
-    Send question for user_id.
-    If fastpath=True, attempt synchronous send immediately (bypassing enqueue) for responsiveness.
+    immediate=True -> send synchronously via send_poll (no enqueue) to avoid any lag.
+    If immediate send fails, fall back to send_with_retries or enqueue.
     """
     s = sessions.get(user_id)
     if not s:
@@ -642,10 +567,7 @@ async def send_question(context, user_id, fastpath=False):
         await advance_question(context, user_id)
         return
 
-    question_text = q.get("question", "").replace("\\n", "\n").strip()
-    if not question_text:
-        question_text = "Choose the correct answer:"
-
+    question_text = q.get("question", "").replace("\\n", "\n").strip() or "Choose the correct answer:"
     correct_idx = parse_correct_option(q.get("correct_option"))
     raw_options = [
         q.get("option_a", "") or "",
@@ -683,41 +605,66 @@ async def send_question(context, user_id, fastpath=False):
             reply_markup=_skip_keyboard(),
         )
 
-    # Fast-path logic: if requested and within initial questions, attempt synchronous send
-    if fastpath and s.get("index", 0) < FASTPATH_INITIAL_QUESTIONS:
-        logger.info("SEND-FASTPATH: attempting immediate send for user %s question_index=%s", user_id, s["index"])
+    # Immediate synchronous send path (zero perceived lag)
+    if immediate:
+        try:
+            # show typing indicator briefly
+            try:
+                await context.bot.send_chat_action(chat_id=user_id, action="typing")
+            except Exception:
+                pass
+
+            result = await context.bot.send_poll(
+                chat_id=user_id,
+                question=question_text,
+                options=raw_options,
+                type="quiz",
+                correct_option_id=correct_idx,
+                open_period=q.get("_time_limit", DEFAULT_QUESTION_TIME),
+                is_anonymous=False,
+                reply_markup=_skip_keyboard(),
+            )
+            async with s["lock"]:
+                s["poll_message_id"] = getattr(result, "message_id", None)
+                s["last_activity"] = time.time()
+            logger.info("SEND-IMMEDIATE: sent poll for user %s index=%s", user_id, s["index"])
+        except Exception:
+            logger.exception("SEND-IMMEDIATE failed for user %s; will attempt reliable send", user_id)
+            # fall through to reliable send below
+
+    # If immediate didn't set poll_message_id, try reliable send (retries) or enqueue
+    if not s.get("poll_message_id"):
         try:
             result = await send_with_retries(context.bot, user_id, factory)
-            metrics["send_fastpath_count"] += 1
             if result:
                 async with s["lock"]:
                     s["poll_message_id"] = getattr(result, "message_id", None)
                     s["last_activity"] = time.time()
         except Exception:
-            logger.exception("SEND-FASTPATH failed for user %s; falling back to enqueue", user_id)
-            # fall through to enqueue below
-
-    # If poll_message_id not set by fastpath, enqueue normally
-    if not s.get("poll_message_id"):
-        enqueued = await enqueue_send_poll(user_id, factory, session_user_id=user_id, priority="user")
-        if not enqueued:
-            # fallback synchronous send
-            logger.warning("SEND-FALLBACK: queue full for user %s; attempting synchronous send", user_id)
-            try:
-                result = await send_with_retries(context.bot, user_id, factory)
-                if result:
+            logger.exception("Reliable send failed; attempting enqueue/fallback for user %s", user_id)
+            enqueued = await enqueue_send_poll(user_id, factory, session_user_id=user_id, priority="user")
+            if not enqueued:
+                try:
+                    result = await context.bot.send_poll(
+                        chat_id=user_id,
+                        question=question_text,
+                        options=raw_options,
+                        type="quiz",
+                        correct_option_id=correct_idx,
+                        open_period=q.get("_time_limit", DEFAULT_QUESTION_TIME),
+                        is_anonymous=False,
+                        reply_markup=_skip_keyboard(),
+                    )
                     async with s["lock"]:
                         s["poll_message_id"] = getattr(result, "message_id", None)
                         s["last_activity"] = time.time()
-            except Exception:
-                logger.exception("SEND-FALLBACK failed for user %s", user_id)
-                try:
-                    await context.bot.send_message(chat_id=user_id, text="⚠️ High load right now. Please try again in a few seconds.")
                 except Exception:
-                    pass
-                return
-        else:
-            logger.debug("SEND-ENQUEUE: poll enqueued for user %s index=%s", user_id, s["index"])
+                    logger.exception("Final fallback send failed for user %s", user_id)
+                    try:
+                        await context.bot.send_message(chat_id=user_id, text="⚠️ Unable to send question right now. Please try again.")
+                    except Exception:
+                        pass
+                    return
 
     s["in_question"] = True
     loop = asyncio.get_running_loop()
@@ -856,6 +803,7 @@ async def handle_skip_callback(query, context):
 
         poll_msg_id = s.get("poll_message_id")
 
+    # Remove inline keyboard so Skip visually disables
     try:
         if poll_msg_id:
             await context.bot.edit_message_reply_markup(chat_id=user_id, message_id=poll_msg_id, reply_markup=None)
@@ -904,17 +852,12 @@ async def advance_question(context, user_id):
         await finish_quiz(context, user_id)
         return
 
-    # For the second question, attempt fastpath only if configured and queue is busy
-    fastpath_for_next = False
-    if s["index"] < FASTPATH_INITIAL_QUESTIONS:
-        fastpath_for_next = True
-
     await asyncio.sleep(TRANSITION_DELAY)
-    logger.debug("ADVANCE: sending next question for user %s (index=%s) fastpath=%s", user_id, s["index"], fastpath_for_next)
-    await send_question(context, user_id, fastpath_for_next)
+    # Always send next question immediately to avoid perceived lag
+    await send_question(context, user_id, immediate=True)
 
 
-# ================= RESULT & ADMIN (HTML-safe) =================
+# ---------------- results & admin ----------------
 
 
 async def finish_quiz(context, user_id):
@@ -994,23 +937,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_greeting(context, update.effective_user.id, update.effective_user.first_name)
 
 
-def _compute_attempted_count_and_leaderboard():
-    finished_users = set(daily_scores.keys())
-    in_progress_attempted = {uid for uid, s in sessions.items() if s.get("attempted", 0) > 0}
-    unique_attempted = finished_users | in_progress_attempted
-    attempted_count = len(unique_attempted)
-    ranked = sorted(daily_scores.values(), key=lambda x: (-x["score"], x["time"]))[:10]
-    return attempted_count, ranked
-
-
 async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user or user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ You are not authorized to use this command.")
         return
 
-    attempted_count, ranked = _compute_attempted_count_and_leaderboard()
-    quiz_date = current_quiz_date_key or "N/A"
+    finished_users = set(daily_scores.keys())
+    in_progress_attempted = {uid for uid, s in sessions.items() if s.get("attempted", 0) > 0}
+    unique_attempted = finished_users | in_progress_attempted
+    attempted_count = len(unique_attempted)
+    ranked = sorted(daily_scores.values(), key=lambda x: (-x["score"], x["time"]))[:10]
+
     lines = []
     for i, r in enumerate(ranked, 1):
         name = html.escape(str(r.get("name", "Unknown")))
@@ -1021,7 +959,7 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     leaderboard_text = "\n".join(lines) or "No completed attempts recorded yet."
     text = (
         f"<b>Admin Daily Leaderboard</b>\n\n"
-        f"<b>Quiz date key:</b> {html.escape(str(quiz_date))}\n"
+        f"<b>Quiz date key:</b> {html.escape(str(current_quiz_date_key or 'N/A'))}\n"
         f"<b>Total attempted:</b> {attempted_count}\n\n"
         f"<b>Top 10</b>\n"
         f"{html.escape(leaderboard_text)}"
@@ -1037,7 +975,6 @@ async def admin_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"<b>Metrics</b>\n\n"
         f"skipped_questions: {metrics['skipped_questions']}\n"
-        f"late_answers_rejected: {metrics['late_answers_rejected']}\n"
         f"late_answers_treated_as_timeout: {metrics['late_answers_treated_as_timeout']}\n"
         f"preload_failures: {metrics['preload_failures']}\n"
         f"timeout_lateness_count: {metrics['timeout_lateness_count']}\n"
@@ -1046,7 +983,6 @@ async def admin_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"send_failures: {metrics['send_failures']}\n"
         f"queue_rejections_user: {metrics['queue_rejections_user']}\n"
         f"queue_rejections_admin: {metrics['queue_rejections_admin']}\n"
-        f"send_fastpath_count: {metrics['send_fastpath_count']}\n"
     )
     await update.message.reply_text(text, parse_mode="HTML")
 
@@ -1094,7 +1030,7 @@ async def admin_force_preload(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(f"✅ Preloaded quiz for <b>{html.escape(quiz_date_key)}</b>.", parse_mode="HTML")
 
 
-# ================= BACKGROUND TASKS =================
+# ---------------- background tasks ----------------
 
 
 async def _wait_until_next_cutoff():
@@ -1165,7 +1101,7 @@ async def cleanup_sessions_task():
             continue
 
 
-# ================= GRACEFUL SHUTDOWN =================
+# ---------------- shutdown ----------------
 
 
 async def _shutdown(app):
@@ -1189,7 +1125,8 @@ async def _shutdown(app):
     logger.info("Shutdown complete")
 
 
-# ================= UNIT-TEST SCAFFOLDING =================
+# ---------------- unit tests (basic) ----------------
+
 
 class SessionHelpersTest(unittest.TestCase):
     def test_normalize_parsing(self):
@@ -1202,27 +1139,6 @@ class SessionHelpersTest(unittest.TestCase):
         self.assertEqual(norm[0]["_marks"], 3.0)
         self.assertAlmostEqual(norm[0]["_neg_ratio"], 0.25)
 
-    def test_treat_late_answer_as_timeout_in_lock_basic(self):
-        user_id = 12345
-        q = {"question": "Q1", "explanation": "E1", "option_a": "A", "option_b": "B", "option_c": "C", "option_d": "D", "correct_option": "A"}
-        s = {
-            "questions": [q],
-            "index": 0,
-            "skipped_timeout": 0,
-            "skipped_user": 0,
-            "skipped_invalid": 0,
-            "timeout_handle": None,
-            "timeout_token": "tok",
-            "explanations": [],
-            "in_question": True,
-            "transitioned": False,
-        }
-        result = _treat_late_answer_as_timeout_in_lock(s, user_id)
-        self.assertTrue(result)
-        self.assertEqual(s["skipped_timeout"], 1)
-        self.assertFalse(s["in_question"])
-        self.assertTrue(any("Skipped due to timeout" in e["explanation"] for e in s["explanations"]))
-
 
 def run_unit_tests():
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SessionHelpersTest)
@@ -1231,7 +1147,7 @@ def run_unit_tests():
     return result.wasSuccessful()
 
 
-# ================= MAIN =================
+# ---------------- main ----------------
 
 
 async def _post_init(application):
@@ -1268,8 +1184,10 @@ def main():
 
     app.post_init = _post_init
 
+    # Ensure we receive messages, callback_query and poll_answer updates
     app.run_polling(allowed_updates=["message", "callback_query", "poll_answer"])
 
 
 if __name__ == "__main__":
     main()
+```
