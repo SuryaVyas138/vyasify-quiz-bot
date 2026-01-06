@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+"""
+Quiz bot: displays question text from CSV followed by options, with:
+- Robust advance logic so quiz always proceeds to next question
+- HTML-safe user messages
+- Deterministic preload/worker startup
+- Poll sends that use the CSV question text
+- Skip button debounce and visual removal
+- Bounded send queues with admin-priority queue
+- Fallback synchronous send when queues are full
+- Per-row time/marks/negative parsing and scoring
+- Late-answer handling and invariants
+- Persisted daily_scores to disk
+"""
+
 import os
 import csv
 import time
@@ -388,7 +403,6 @@ async def send_greeting(context, user_id, name):
         [InlineKeyboardButton("▶️ Start Today’s Quiz", callback_data="start_quiz")],
         [InlineKeyboardButton("ℹ️ How it works", callback_data="how_it_works")]
     ])
-    # HTML-safe greeting (no special MarkdownV2 issues)
     text = (
         "📘 <b>Welcome to Vyasify Daily Quiz</b>\n\n"
         "This is a daily practice platform for aspirants of 🎯 <b>UPSC | SSC | Regulatory Body Examinations</b>\n\n"
@@ -490,6 +504,7 @@ async def start_quiz(context, user_id, name):
         "quiz_date_key": current_quiz_date_key,
         "skip_disabled": False,
         "last_late_msg_ts": 0.0,
+        "_advancing": False,  # internal guard for advance
     }
 
     try:
@@ -520,6 +535,11 @@ def _cancel_timeout_handle(s):
 
 
 def _treat_late_answer_as_timeout_in_lock(s, user_id):
+    """
+    Mark the current question as timeout-skip due to late answer.
+    This function only updates session counters and explanation; it does NOT call advance_question.
+    Caller must call advance_question/send_question as appropriate.
+    """
     if not s:
         return False
     try:
@@ -547,9 +567,8 @@ def _treat_late_answer_as_timeout_in_lock(s, user_id):
 
     s["in_question"] = False
     s["last_action"] = ("late_answer_treated_as_timeout", time.time())
-    s["transitioned"] = True
-    s["index"] = s.get("index", 0) + 1
-    s["skip_disabled"] = False  # reset for next question
+    # do not set transitioned/index here; let advance_question handle it
+    s["skip_disabled"] = False
     return True
 
 
@@ -585,9 +604,11 @@ async def question_timeout_by_handle(context, user_id, q_index, token):
             s["timeout_token"] = None
             s["timeout_handle"] = None
             s["skip_disabled"] = False
-            await advance_question(context, user_id)
         except Exception:
             logger.exception("Error in question_timeout_by_handle for user %s", user_id)
+
+    # Advance outside the lock to reuse central advance logic
+    await advance_question(context, user_id)
 
 
 async def send_question(context, user_id):
@@ -623,6 +644,11 @@ async def send_question(context, user_id):
         await advance_question(context, user_id)
         return
 
+    # Use the CSV question text as the poll question
+    question_text = q.get("question", "").replace("\\n", "\n").strip()
+    if not question_text:
+        question_text = "Choose the correct answer:"
+
     correct_idx = parse_correct_option(q.get("correct_option"))
     raw_options = [
         q.get("option_a", "") or "",
@@ -648,10 +674,11 @@ async def send_question(context, user_id):
         await advance_question(context, user_id)
         return
 
+    # Factory uses the CSV question text and the raw options so correct_option_id aligns with CSV index
     def factory():
         return context.bot.send_poll(
             chat_id=user_id,
-            question="Choose the correct answer:",
+            question=question_text,
             options=raw_options,
             type="quiz",
             correct_option_id=correct_idx,
@@ -758,8 +785,8 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             record_explanation(s, q, s["index"] + 1)
 
     if treated_late:
-        await asyncio.sleep(TRANSITION_DELAY)
-        await send_question(context, user_id)
+        # central advance logic will increment index and send next
+        await advance_question(context, user_id)
         return
 
     await advance_question(context, user_id)
@@ -812,8 +839,6 @@ async def handle_skip_callback(query, context):
         s["skipped_user"] = s.get("skipped_user", 0) + 1
         metrics["user_skips"] += 1
 
-        s["transitioned"] = True
-        s["index"] += 1
         s["in_question"] = False
         s["last_action"] = ("skip", time.time())
         s["skip_disabled"] = True
@@ -832,27 +857,59 @@ async def handle_skip_callback(query, context):
     except Exception:
         pass
 
-    await asyncio.sleep(TRANSITION_DELAY)
-    await send_question(context, user_id)
+    # Use central advance logic
+    await advance_question(context, user_id)
 
 
 async def advance_question(context, user_id):
+    """
+    Centralized, idempotent advance logic.
+    Ensures index increments exactly once per question and next question is sent.
+    Uses an internal _advancing guard to avoid races.
+    """
     s = sessions.get(user_id)
     if not s:
         return
+
+    # Acquire session lock to mutate safely
     async with s["lock"]:
-        if s.get("transitioned"):
+        if s.get("_advancing"):
+            logger.debug("ADVANCE: already advancing for user %s; skipping duplicate call", user_id)
             return
-        s["transitioned"] = True
-        s["index"] += 1
-        s["in_question"] = False
-        s["skip_disabled"] = False
+        s["_advancing"] = True
+
+        try:
+            # If caller already incremented index (some code paths did), ensure we don't double-increment.
+            # We treat current_q_index as the question that was just processed.
+            current_q = s.get("current_q_index", 0)
+            # If index is <= current_q, we need to increment to move forward.
+            if s.get("index", 0) <= current_q:
+                s["index"] = current_q + 1
+                logger.debug("ADVANCE: incremented index for user %s to %s", user_id, s["index"])
+            else:
+                # index already advanced by caller; keep it as-is
+                logger.debug("ADVANCE: index already advanced for user %s (index=%s current_q=%s)", user_id, s["index"], current_q)
+
+            s["transitioned"] = False
+            s["in_question"] = False
+            s["skip_disabled"] = False
+        finally:
+            s["_advancing"] = False
+
+    # After releasing lock, decide next action
+    # If we've reached the end, finish quiz
+    s = sessions.get(user_id)
+    if not s:
+        return
 
     if s["index"] >= len(s["questions"]):
+        logger.info("ADVANCE: user %s completed quiz (index=%s total=%s)", user_id, s["index"], len(s["questions"]))
         await finish_quiz(context, user_id)
         return
 
+    # Small transition delay for UX
     await asyncio.sleep(TRANSITION_DELAY)
+    logger.debug("ADVANCE: sending next question for user %s (index=%s)", user_id, s["index"])
     await send_question(context, user_id)
 
 
@@ -1161,8 +1218,7 @@ class SessionHelpersTest(unittest.TestCase):
         result = _treat_late_answer_as_timeout_in_lock(s, user_id)
         self.assertTrue(result)
         self.assertEqual(s["skipped_timeout"], 1)
-        self.assertEqual(s["index"], 1)
-        self.assertTrue(s["transitioned"])
+        self.assertEqual(s["index"], 0)  # index not changed here; advance_question will increment
         self.assertFalse(s["in_question"])
         self.assertTrue(any("Skipped due to timeout" in e["explanation"] for e in s["explanations"]))
 
@@ -1215,8 +1271,9 @@ def main():
     # Deterministic post-init
     app.post_init = _post_init
 
-    # Allow all update types we use (messages, callback_query, poll_answer)
+    # Ensure we receive the update types we need
     app.run_polling(allowed_updates=["message", "callback_query", "poll_answer"])
+
 
 if __name__ == "__main__":
     main()
