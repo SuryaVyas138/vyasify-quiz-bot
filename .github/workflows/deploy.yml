@@ -10,14 +10,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to Oracle
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          host: ${{ secrets.ORACLE_HOST }}
-          username: ${{ secrets.ORACLE_USER }}
-          key: ${{ secrets.ORACLE_SSH_KEY }}
-          command_timeout: 5m
-          script: |
+          ssh-private-key: |
+            ${{ secrets.ORACLE_SSH_KEY }}
+
+      - name: Deploy to Oracle
+        run: |
+          ssh -o StrictHostKeyChecking=no deploy@${{ secrets.ORACLE_HOST }} << 'EOF'
             cd /home/deploy/apps/vyasify-quiz-bot
             git pull origin main
             sudo -n systemctl restart vyasify-quiz-bot
+          EOF
