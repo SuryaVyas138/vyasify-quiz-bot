@@ -28,6 +28,18 @@ def now_ist():
 def today_date():
     return now_ist().date()
 
+def quiz_day_key():
+    """
+    Returns quiz day date based on 17:00 IST reset.
+    Quiz day changes at 17:00 IST.
+    """
+    now = now_ist()
+    if now.hour < 17:
+        return (now.date() - timedelta(days=1)).isoformat()
+    return now.date().isoformat()
+
+
+
 # ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -228,10 +240,11 @@ async def start_quiz(context, user_id, name):
         await context.bot.send_message(chat_id=user_id, text="❌ Today’s quiz is not yet available.")
         return
 
-    quiz_date_key = quiz_date.isoformat()
-    if quiz_date_key != current_quiz_date_key:
-        daily_scores.clear()
-        current_quiz_date_key = quiz_date_key
+    quiz_date_key = quiz_day_key()
+if quiz_date_key != current_quiz_date_key:
+    daily_scores.clear()
+    current_quiz_date_key = quiz_date_key
+
 
     questions = [r for r in rows if r["_date_obj"] == quiz_date]
 
