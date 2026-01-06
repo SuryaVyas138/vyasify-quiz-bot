@@ -38,8 +38,6 @@ def quiz_day_key():
         return (now.date() - timedelta(days=1)).isoformat()
     return now.date().isoformat()
 
-
-
 # ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -196,14 +194,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=query.from_user.id,
             text=(
                 "ℹ️ *How the Daily Quiz Works*\n\n"
-            "• You get 10 UPSC-standard questions every day\n"
-            "• Each question is timed to build exam temperament\n"
-            "• Answer, skip, or manage time smartly\n"
-            "• Scores follow the official UPSC marking scheme\n"
-            "• Check your rank on the daily leaderboard\n"
-            "• Simple explanations provided at the end, helps quick revision\n\n"
-            "👉 Send *Hi* anytime to start Daily Quiz"
-                
+                "• You get 10 UPSC-standard questions every day\n"
+                "• Each question is timed to build exam temperament\n"
+                "• Answer, skip, or manage time smartly\n"
+                "• Scores follow the official UPSC marking scheme\n"
+                "• Check your rank on the daily leaderboard\n"
+                "• Simple explanations provided at the end, helps quick revision\n\n"
+                "👉 Send *Hi* anytime to start Daily Quiz"
             ),
             parse_mode="Markdown",
         )
@@ -241,10 +238,9 @@ async def start_quiz(context, user_id, name):
         return
 
     quiz_date_key = quiz_day_key()
-if quiz_date_key != current_quiz_date_key:
-    daily_scores.clear()
-    current_quiz_date_key = quiz_date_key
-
+    if quiz_date_key != current_quiz_date_key:
+        daily_scores.clear()
+        current_quiz_date_key = quiz_date_key
 
     questions = [r for r in rows if r["_date_obj"] == quiz_date]
 
@@ -380,7 +376,7 @@ async def finish_quiz(context, user_id):
             f"⏭ Skipped: {skipped}\n"
             f"🎯 Marks: {round(s['marks'],2)}\n"
             f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
-            "🏆 *Daily Leaderboard (Top 10)*\n"
+            "🏆 *Daily Leaderboard (Top 10)*\n\n"
             f"{leaderboard}"
         ),
         parse_mode="Markdown"
