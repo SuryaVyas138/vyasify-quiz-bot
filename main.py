@@ -184,11 +184,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=query.from_user.id,
             text=(
                 "ℹ️ *How the Daily Quiz Works*\n\n"
-                "• 10 exam-oriented questions daily\n"
-                "• Timed per question\n"
-                "• UPSC-style marking\n"
-                "• Leaderboard based on first attempt\n"
-                "• Explanations after completion"
+            "• You get 10 UPSC-standard questions every day\n"
+            "• Each question is timed to build exam temperament\n"
+            "• Answer, skip, or manage time smartly\n"
+            "• Scores follow the official UPSC marking scheme\n"
+            "• Check your rank on the daily leaderboard\n"
+            "• Simple explanations provided at the end, helps quick revision\n\n"
+            "👉 Send *Hi* anytime to start Daily Quiz"
+                
             ),
             parse_mode="Markdown",
         )
