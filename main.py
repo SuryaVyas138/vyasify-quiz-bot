@@ -98,7 +98,7 @@ def record_explanation(session, q, q_no):
     explanation_text = q["explanation"].replace("\\n", "\n")
 
     session["explanations"].append(
-        f"*Q{q_no}.* {question_text}\n"
+        f"*Q{q_no}.* {question_text}\n\n"
         f"📘 _Explanation:_\n"
         f"_{explanation_text}_\n"
         "────────────────────"
@@ -357,7 +357,7 @@ async def finish_quiz(context, user_id):
     await context.bot.send_message(
         chat_id=user_id,
         text=(
-            "🏁 *Quiz Finished!*\n"
+            "🏁 *Quiz Finished!*\n\n"
             f"📝 Attempted: {s['attempted']}/{total}\n"
             f"✅ Correct: {s['score']}\n"
             f"❌ Wrong: {s['wrong']}\n"
