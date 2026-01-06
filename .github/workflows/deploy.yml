@@ -16,7 +16,8 @@ jobs:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
+          command_timeout: 5m
           script: |
-            cd ${{ secrets.ORACLE_PATH }}
+            cd /home/deploy/apps/vyasify-quiz-bot
             git pull origin main
-            sudo systemctl restart vyasify-quiz-bot
+            sudo -n systemctl restart vyasify-quiz-bot
