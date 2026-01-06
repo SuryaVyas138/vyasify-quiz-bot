@@ -109,7 +109,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.2)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
@@ -120,7 +120,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.2)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
@@ -131,7 +131,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(0.35)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
@@ -142,7 +142,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.2)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
@@ -153,7 +153,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.2)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
@@ -164,7 +164,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(0.35)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
@@ -175,7 +175,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.2)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
@@ -186,7 +186,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.2)
     await context.bot.edit_message_text(
         chat_id=user_id,
         message_id=msg.message_id,
@@ -197,7 +197,7 @@ async def quiz_intro_animation(context, user_id, topic):
         parse_mode="Markdown"
     )
 
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.25)
     await context.bot.delete_message(chat_id=user_id, message_id=msg.message_id)
 
 # ================= EXPLANATION RECORDER =================
