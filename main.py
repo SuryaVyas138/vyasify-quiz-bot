@@ -109,7 +109,7 @@ async def send_greeting(context, user_id, name):
 
     text = (
         "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is your focused daily practice platform for aspirants of 🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
+        "This is your a daily practice platform for aspirants of 🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
         "🔹 *Daily 10 questions* strictly aligned to *UPSC Prelims-oriented topics*\n\n"
         "✅ Correct Answer: 2 Marks\n"
         "❌ Negative Marking: -1/3 Marks\n"
