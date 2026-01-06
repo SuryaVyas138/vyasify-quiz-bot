@@ -31,6 +31,7 @@ def today_date():
 # ================= CONFIG =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = 2053638316
 
 OFFENSIVE_WORDS = {"fuck", "shit", "bitch", "asshole", "idiot", "stupid"}
 
@@ -97,7 +98,7 @@ def record_explanation(session, q, q_no):
     explanation_text = q["explanation"].replace("\\n", "\n")
 
     session["explanations"].append(
-        f"*Q{q_no}.* {question_text}\n\n"
+        f"*Q{q_no}.* {question_text}\n"
         f"📘 _Explanation:_\n"
         f"_{explanation_text}_\n"
         "────────────────────"
@@ -135,6 +136,39 @@ async def send_greeting(context, user_id, name):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_greeting(context, update.effective_user.id, update.effective_user.first_name)
+
+# ================= ADMIN COMMAND =================
+
+async def daily_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if user_id != ADMIN_ID:
+        await update.message.reply_text(
+            "🙏 This command is reserved for the administrator. Thank you for your understanding."
+        )
+        return
+
+    total_students = len(daily_scores)
+
+    ranked = sorted(
+        daily_scores.values(),
+        key=lambda x: (-x["score"], x["time"])
+    )[:10]
+
+    leaderboard = ""
+    for i, r in enumerate(ranked, 1):
+        m, sec = divmod(r["time"], 60)
+        leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n\n"
+
+    await update.message.reply_text(
+        (
+            "📊 *Daily Quiz Statistics*\n\n"
+            f"👥 Total Students Attempted Today: {total_students}\n\n"
+            "🏆 *Top 10 Leaderboard*\n\n"
+            f"{leaderboard}"
+        ),
+        parse_mode="Markdown"
+    )
 
 # ================= BUTTON HANDLER =================
 
@@ -364,6 +398,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("daily_stats", daily_stats))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(PollAnswerHandler(handle_answer))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
