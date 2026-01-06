@@ -1,20 +1,10 @@
 #!/usr/bin/env python3
-"""
-Vyasify Quiz Bot — FINAL VERIFIED BUILD
-✔ Greeting works
-✔ Instant first question
-✔ No lag
-✔ Safe async handlers
-"""
-
 import os
 import csv
 import time
 import asyncio
 import requests
 from io import StringIO
-from datetime import datetime, timedelta, timezone
-import logging
 
 from telegram import (
     Update,
@@ -28,12 +18,12 @@ from telegram.ext import (
     PollAnswerHandler,
     ContextTypes,
 )
-from telegram.helpers import escape_markdown
 
 # ================= CONFIG =================
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN not set")
+    raise RuntimeError("BOT_TOKEN environment variable not set")
 
 QUIZ_CSV_URL = (
     "https://docs.google.com/spreadsheets/d/e/"
@@ -41,89 +31,82 @@ QUIZ_CSV_URL = (
     "/pub?output=csv"
 )
 
-IST = timezone(timedelta(hours=5, minutes=30))
-DEFAULT_TIME = 20
+QUESTION_TIME = 20
 TRANSITION_DELAY = 1
 
 # ================= STATE =================
-sessions = {}
-quiz_cache = []
 
-# ================= LOGGING =================
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+quiz_questions = []
+sessions = {}
 
 # ================= HELPERS =================
-
-def safe(text):
-    return escape_markdown(text or "", version=2)
-
-def parse_correct(opt):
-    return ord(opt) - 65 if opt in ("A", "B", "C", "D") else None
 
 def load_quiz():
     r = requests.get(QUIZ_CSV_URL, timeout=15)
     r.raise_for_status()
-    rows = list(csv.DictReader(StringIO(r.text)))
-    return rows
+    return list(csv.DictReader(StringIO(r.text)))
 
-# ================= UI =================
+def correct_index(opt):
+    if opt in ("A", "B", "C", "D"):
+        return ord(opt) - 65
+    return None
 
 def skip_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏭ Skip", callback_data="skip")]
-    ])
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⏭ Skip", callback_data="skip")]]
+    )
 
 # ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_user.id,
-        text=safe(
+        text=(
             "📘 Welcome to *Vyasify Daily Quiz*\n\n"
             "• UPSC Prelims focused\n"
             "• Timed questions\n"
             "• Negative marking\n\n"
             "Tap below to start 👇"
         ),
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("▶️ Start Quiz", callback_data="start_quiz")]
-        ]),
-        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("▶️ Start Quiz", callback_data="start_quiz")]]
+        ),
+        parse_mode="Markdown",
     )
 
 async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.callback_query.from_user.id
-    await update.callback_query.answer()
+    query = update.callback_query
+    await query.answer()
 
-    sessions[uid] = {
+    user_id = query.from_user.id
+
+    sessions[user_id] = {
         "index": 0,
-        "marks": 0.0,
         "attempted": 0,
         "wrong": 0,
         "skipped": 0,
-        "start": time.time(),
-        "lock": asyncio.Lock(),
-        "transitioned": False,
+        "marks": 0.0,
+        "start_time": time.time(),
     }
 
-    await send_question(context, uid)
+    await send_question(context, user_id)
 
-async def send_question(context, uid):
-    s = sessions.get(uid)
-    if not s:
+async def send_question(context, user_id):
+    session = sessions.get(user_id)
+    if not session:
         return
 
-    if s["index"] >= len(quiz_cache):
-        await finish_quiz(context, uid)
+    idx = session["index"]
+
+    if idx >= len(quiz_questions):
+        await finish_quiz(context, user_id)
         return
 
-    q = quiz_cache[s["index"]]
-    correct = parse_correct(q["correct_option"])
+    q = quiz_questions[idx]
 
     await context.bot.send_poll(
-        chat_id=uid,
-        question=f"Q{s['index']+1}. {q['question']}",
+        chat_id=user_id,
+        question=f"Q{idx + 1}. {q['question']}",
         options=[
             q["option_a"],
             q["option_b"],
@@ -131,77 +114,73 @@ async def send_question(context, uid):
             q["option_d"],
         ],
         type="quiz",
-        correct_option_id=correct,
+        correct_option_id=correct_index(q["correct_option"]),
         is_anonymous=False,
-        open_period=int(q.get("time", DEFAULT_TIME)),
+        open_period=QUESTION_TIME,
         reply_markup=skip_keyboard(),
     )
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.poll_answer.user.id
-    s = sessions.get(uid)
-    if not s:
+    user_id = update.poll_answer.user.id
+    session = sessions.get(user_id)
+    if not session:
         return
 
-    async with s["lock"]:
-        if s["transitioned"]:
-            return
-        s["transitioned"] = True
-        q = quiz_cache[s["index"]]
-        selected = update.poll_answer.option_ids[0]
-        if selected == parse_correct(q["correct_option"]):
-            s["marks"] += 2
-        else:
-            s["wrong"] += 1
-            s["marks"] -= 2 / 3
-        s["attempted"] += 1
-        s["index"] += 1
+    q = quiz_questions[session["index"]]
+    selected = update.poll_answer.option_ids[0]
+    correct = correct_index(q["correct_option"])
 
+    session["attempted"] += 1
+    if selected == correct:
+        session["marks"] += 2
+    else:
+        session["wrong"] += 1
+        session["marks"] -= 2 / 3
+
+    session["index"] += 1
     await asyncio.sleep(TRANSITION_DELAY)
-    s["transitioned"] = False
-    await send_question(context, uid)
+    await send_question(context, user_id)
 
 async def handle_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.callback_query.from_user.id
-    await update.callback_query.answer()
-    s = sessions.get(uid)
-    if not s:
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    session = sessions.get(user_id)
+    if not session:
         return
 
-    async with s["lock"]:
-        if s["transitioned"]:
-            return
-        s["transitioned"] = True
-        s["skipped"] += 1
-        s["index"] += 1
+    session["skipped"] += 1
+    session["index"] += 1
 
     await asyncio.sleep(TRANSITION_DELAY)
-    s["transitioned"] = False
-    await send_question(context, uid)
+    await send_question(context, user_id)
 
-async def finish_quiz(context, uid):
-    s = sessions.pop(uid, None)
-    if not s:
+async def finish_quiz(context, user_id):
+    session = sessions.pop(user_id, None)
+    if not session:
         return
-    time_taken = int(time.time() - s["start"])
+
+    time_taken = int(time.time() - session["start_time"])
+
     await context.bot.send_message(
-        chat_id=uid,
-        text=safe(
-            f"🏁 *Quiz Finished*\n\n"
-            f"Marks: {round(s['marks'],2)}\n"
-            f"Attempted: {s['attempted']}\n"
-            f"Wrong: {s['wrong']}\n"
-            f"Skipped: {s['skipped']}\n"
-            f"Time: {time_taken}s"
+        chat_id=user_id,
+        text=(
+            "🏁 *Quiz Finished!*\n\n"
+            f"Attempted: {session['attempted']}\n"
+            f"Wrong: {session['wrong']}\n"
+            f"Skipped: {session['skipped']}\n"
+            f"Marks: {round(session['marks'], 2)}\n"
+            f"Time Taken: {time_taken} sec"
         ),
-        parse_mode="MarkdownV2",
+        parse_mode="Markdown",
     )
 
 # ================= MAIN =================
 
 def main():
-    global quiz_cache
-    quiz_cache = load_quiz()
+    global quiz_questions
+    quiz_questions = load_quiz()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -210,7 +189,10 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_skip, pattern="skip"))
     app.add_handler(PollAnswerHandler(handle_answer))
 
-    app.run_polling()
+    # 🚨 REQUIRED FOR QUIZ BOTS
+    app.run_polling(
+        allowed_updates=["message", "callback_query", "poll_answer"]
+    )
 
 if __name__ == "__main__":
     main()
