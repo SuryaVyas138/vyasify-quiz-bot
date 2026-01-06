@@ -118,7 +118,7 @@ async def send_greeting(context, user_id, name):
         "🔹 *Daily 10 questions* strictly aligned to *UPSC Prelims-oriented topics*\n\n"
         "✅ Correct Answer: 2 Marks\n"
         "❌ Negative Marking: -1/3 Marks\n"
-        "⏭ Skipped: 0 Marks\n\n"
+        "⏭ Skip: 0 Marks\n\n"
         "📝 Timed questions to build exam temperament\n"
         "📊 Score, Rank & Percentile for self-benchmarking\n"
         "📖 Simple explanations for concept clarity\n\n"
