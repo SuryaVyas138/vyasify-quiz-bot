@@ -340,7 +340,7 @@ async def finish_quiz(context, user_id):
             if len(chunk) + len(exp) > 3800:
                 await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
                 chunk = header
-            chunk += exp + "\n\n\n"
+            chunk += exp + "\n"
 
         if chunk.strip() != header.strip():
             await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="Markdown")
