@@ -1,17 +1,3 @@
-```python
-#!/usr/bin/env python3
-"""
-Quiz bot with fixes:
-- Ensures cached quiz preload is used
-- Resets Skip debounce per question so Skip button visually disables correctly
-- Records poll_message_id after send (worker and fallback)
-- Fallback synchronous send when queues are full
-- Per-row time/marks/negative parsing and scoring
-- Late-answer handling and metrics
-- Bounded send queues with admin-priority queue
-- Persisted daily_scores to disk
-"""
-
 import os
 import csv
 import time
@@ -22,6 +8,7 @@ import uuid
 import sys
 import random
 import json
+import html
 from io import StringIO
 from datetime import datetime, timezone, timedelta, time as dtime
 import logging
@@ -38,7 +25,6 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from telegram.helpers import escape_markdown
 from telegram.error import RetryAfter, TimedOut, NetworkError, TelegramError
 
 # ================= LOGGING =================
@@ -51,10 +37,6 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 def now_ist():
     return datetime.now(IST)
-
-
-def today_date():
-    return now_ist().date()
 
 
 # ================= CONFIG =================
@@ -183,15 +165,6 @@ def parse_correct_option(opt):
     return ord(opt) - 65
 
 
-def safe_escape(text):
-    if not text:
-        return ""
-    try:
-        return escape_markdown(text, version=2)
-    except Exception:
-        return re.sub(r'([_*[\]()~`>#+\-=|{}.!])', r'\\\1', text)
-
-
 def normalize_sheet_rows(rows):
     normalized = []
     for r in rows:
@@ -201,7 +174,6 @@ def normalize_sheet_rows(rows):
         try:
             parsed = datetime.strptime(raw.strip(), "%d-%m-%Y")
         except Exception:
-            # If date parsing fails, skip row
             continue
         r["_date_obj"] = parsed.date()
 
@@ -220,14 +192,14 @@ def normalize_sheet_rows(rows):
 
         try:
             nr = float(r.get("negative_ratio", DEFAULT_NEGATIVE_RATIO))
-            if nr < 0 or nr > 1:
-                r["_neg_ratio"] = DEFAULT_NEGATIVE_RATIO
-            else:
+            if 0 <= nr <= 1:
                 r["_neg_ratio"] = nr
+            else:
+                r["_neg_ratio"] = DEFAULT_NEGATIVE_RATIO
         except Exception:
             r["_neg_ratio"] = DEFAULT_NEGATIVE_RATIO
 
-        # Ensure question and options exist as strings
+        # Ensure string fields present
         for k in ("question", "option_a", "option_b", "option_c", "option_d", "correct_option", "explanation"):
             if k not in r or r.get(k) is None:
                 r[k] = ""
@@ -241,9 +213,7 @@ def normalize_sheet_rows(rows):
 def effective_date_for_now():
     now = now_ist()
     cutoff = dtime(hour=QUIZ_SWITCH_HOUR, minute=0)
-    if now.time() < cutoff:
-        return (now.date() - timedelta(days=1))
-    return now.date()
+    return (now.date() - timedelta(days=1)) if now.time() < cutoff else now.date()
 
 
 def get_effective_quiz_date(rows):
@@ -273,12 +243,12 @@ async def preload_quiz_if_needed():
     async with _cached_quiz_lock:
         if quiz_date_key not in _cached_quizzes:
             _cached_quizzes[quiz_date_key] = [r for r in rows if r["_date_obj"] == quiz_date]
-            logger.info("Cached quiz for date %s with %d questions", quiz_date_key, len(_cached_quizzes[quiz_date_key]))
+            logger.info("Cached quiz for %s (%d questions)", quiz_date_key, len(_cached_quizzes[quiz_date_key]))
         async with _update_lock:
             if quiz_date_key != current_quiz_date_key:
                 daily_scores.clear()
                 current_quiz_date_key = quiz_date_key
-                logger.info("Updated current_quiz_date_key to %s via preload", quiz_date_key)
+                logger.info("Set current_quiz_date_key = %s", quiz_date_key)
     return quiz_date_key
 
 
@@ -290,7 +260,7 @@ def load_daily_scores_from_disk():
                 data = json.load(f)
                 if isinstance(data, dict):
                     daily_scores.update(data)
-                    logger.info("Loaded daily_scores from disk (%d entries)", len(daily_scores))
+                    logger.info("Loaded daily_scores (%d entries)", len(daily_scores))
     except Exception:
         logger.exception("Failed to load daily_scores from disk")
 
@@ -299,7 +269,7 @@ def persist_daily_scores_to_disk():
     try:
         with open(DAILY_SCORES_FILE, "w", encoding="utf-8") as f:
             json.dump(daily_scores, f)
-        logger.debug("Persisted daily_scores to disk (%d entries)", len(daily_scores))
+        logger.debug("Persisted daily_scores (%d entries)", len(daily_scores))
     except Exception:
         logger.exception("Failed to persist daily_scores to disk")
 
@@ -317,32 +287,23 @@ async def send_with_retries(bot, chat_id, send_coro_factory, max_retries=SEND_RE
                 jitter = random.uniform(0, SEND_JITTER_MAX)
                 if jitter:
                     await asyncio.sleep(jitter)
-                coro = send_coro_factory()
-                result = await coro
-                return result
+                return await send_coro_factory()
         except RetryAfter as e:
             wait = getattr(e, "retry_after", None) or (backoff * attempt)
-            logger.warning("RetryAfter received, sleeping %.2fs", wait)
             metrics["send_retries"] += 1
             await asyncio.sleep(wait)
             backoff *= 2
-            continue
         except (TimedOut, NetworkError) as e:
-            logger.warning("Transient network error on send attempt %d: %s", attempt, e)
             metrics["send_retries"] += 1
             await asyncio.sleep(backoff * attempt)
             backoff *= 2
-            continue
         except TelegramError as e:
-            logger.exception("TelegramError on send: %s", e)
             metrics["send_failures"] += 1
             raise
-        except Exception as e:
-            logger.exception("Unexpected error during send: %s", e)
+        except Exception:
             metrics["send_failures"] += 1
             await asyncio.sleep(backoff * attempt)
             backoff *= 2
-            continue
     raise RuntimeError("Exceeded send retries")
 
 
@@ -352,7 +313,6 @@ async def _send_worker_loop(app):
     while not _shutdown_event.is_set():
         job = None
         try:
-            # Prefer admin queue
             try:
                 job = _send_queue_admin.get_nowait()
             except asyncio.QueueEmpty:
@@ -365,26 +325,17 @@ async def _send_worker_loop(app):
 
             result = None
             try:
-                # Execute send with retries; this returns the Message object on success
                 result = await send_with_retries(bot, job["chat_id"], job["factory"])
             except Exception:
                 logger.exception("Failed to send job: %s", job.get("type"))
             finally:
-                # mark done on the appropriate queue
-                if job.get("priority") == "admin":
-                    try:
-                        _send_queue_admin.task_done()
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        _send_queue_user.task_done()
-                    except Exception:
-                        pass
+                try:
+                    (_send_queue_admin if job.get("priority") == "admin" else _send_queue_user).task_done()
+                except Exception:
+                    pass
 
-            # Record poll_message_id into session if this was a poll send
             if job.get("type") == "poll" and job.get("session_user_id") and result is not None:
-                uid = job.get("session_user_id")
+                uid = job["session_user_id"]
                 s = sessions.get(uid)
                 if s:
                     try:
@@ -393,29 +344,23 @@ async def _send_worker_loop(app):
                             s["last_activity"] = time.time()
                     except Exception:
                         logger.exception("Failed to set poll_message_id for user %s after send", uid)
-
         except Exception:
             logger.exception("Unexpected error in send worker loop")
 
 
 async def enqueue_send_poll(chat_id, factory, session_user_id=None, priority="user"):
     job = {"type": "poll", "chat_id": chat_id, "factory": factory, "session_user_id": session_user_id, "priority": priority}
-    if priority == "admin":
-        try:
-            _send_queue_admin.put_nowait(job)
-            return True
-        except asyncio.QueueFull:
+    try:
+        queue = _send_queue_admin if priority == "admin" else _send_queue_user
+        queue.put_nowait(job)
+        return True
+    except asyncio.QueueFull:
+        if priority == "admin":
             metrics["queue_rejections_admin"] += 1
-            logger.warning("Admin send queue full; rejecting admin job for chat %s", chat_id)
-            return False
-    else:
-        try:
-            _send_queue_user.put_nowait(job)
-            return True
-        except asyncio.QueueFull:
+        else:
             metrics["queue_rejections_user"] += 1
-            logger.warning("User send queue full; rejecting user job for chat %s", chat_id)
-            return False
+        logger.warning("Queue full (%s); rejecting job for chat %s", priority, chat_id)
+        return False
 
 
 # ================= EXPLANATION RECORDER =================
@@ -435,7 +380,7 @@ def record_explanation(session, q, q_no, reason=None):
     })
 
 
-# ================= GREETING & UI =================
+# ================= GREETING & UI (HTML-safe) =================
 
 
 async def send_greeting(context, user_id, name):
@@ -443,19 +388,20 @@ async def send_greeting(context, user_id, name):
         [InlineKeyboardButton("▶️ Start Today’s Quiz", callback_data="start_quiz")],
         [InlineKeyboardButton("ℹ️ How it works", callback_data="how_it_works")]
     ])
+    # HTML-safe greeting (no special MarkdownV2 issues)
     text = (
-        "📘 *Welcome to Vyasify Daily Quiz*\n\n"
-        "This is a daily practice platform for aspirants of 🎯 *UPSC | SSC | Regulatory Body Examinations*\n\n"
-        "🔹 *Daily 10 questions* strictly aligned to *UPSC Prelims-oriented topics*\n\n"
+        "📘 <b>Welcome to Vyasify Daily Quiz</b>\n\n"
+        "This is a daily practice platform for aspirants of 🎯 <b>UPSC | SSC | Regulatory Body Examinations</b>\n\n"
+        "🔹 <b>Daily 10 questions</b> strictly aligned to <b>UPSC Prelims-oriented topics</b>\n\n"
         "✅ Correct Answer: 2 Marks\n"
         "❌ Negative Marking: -1/3 Marks\n"
         "🚫 Skipped: 0 Marks\n\n"
         "📝 Timed questions to build exam temperament\n"
         "📊 Score, Rank & Percentile for self-benchmarking\n"
         "📖 Simple explanations for concept clarity\n\n"
-        "👇 *Tap below to start today’s quiz*"
+        "👇 <b>Tap below to start today’s quiz</b>"
     )
-    await context.bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="MarkdownV2")
+    await context.bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="HTML")
 
 
 def _skip_keyboard():
@@ -482,33 +428,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "start_quiz":
         await start_quiz(context, query.from_user.id, query.from_user.first_name)
         return
-
     if data == "how_it_works":
-        await context.bot.send_message(
-            chat_id=query.from_user.id,
-            text=(
-                "ℹ️ *How the Daily Quiz Works*\n\n"
-                "• 10 exam-oriented questions daily\n"
-                "• Timed per question\n"
-                "• UPSC-style marking\n"
-                "• Leaderboard based on first attempt\n"
-                "• Explanations after completion"
-            ),
-            parse_mode="MarkdownV2",
+        text = (
+            "ℹ️ <b>How the Daily Quiz Works</b>\n\n"
+            "• 10 exam-oriented questions daily\n"
+            "• Timed per question\n"
+            "• UPSC-style marking\n"
+            "• Leaderboard based on first attempt\n"
+            "• Explanations after completion"
         )
+        await context.bot.send_message(chat_id=query.from_user.id, text=text, parse_mode="HTML")
         return
-
     if data == "skip_q":
         await handle_skip_callback(query, context)
         return
 
 
-# ================= QUIZ START (uses cached quizzes) =================
+# ================= QUIZ START =================
 
 
 async def start_quiz(context, user_id, name):
     global current_quiz_date_key, _cached_quizzes
 
+    # Ensure preload has happened
     async with _cached_quiz_lock:
         if not current_quiz_date_key or current_quiz_date_key not in _cached_quizzes:
             await preload_quiz_if_needed()
@@ -518,6 +460,9 @@ async def start_quiz(context, user_id, name):
         return
 
     questions = _cached_quizzes.get(current_quiz_date_key, [])
+    if not questions:
+        await context.bot.send_message(chat_id=user_id, text="⚠️ No questions found for today’s quiz. Please try again later.")
+        return
 
     sessions[user_id] = {
         "questions": questions,
@@ -560,7 +505,7 @@ async def start_quiz(context, user_id, name):
         await context.bot.send_message(chat_id=user_id, text="❌ An error occurred. Please try again later.")
 
 
-# ================= QUIZ FLOW & TIMING (enqueue sends) =================
+# ================= QUIZ FLOW =================
 
 
 def _cancel_timeout_handle(s):
@@ -604,8 +549,7 @@ def _treat_late_answer_as_timeout_in_lock(s, user_id):
     s["last_action"] = ("late_answer_treated_as_timeout", time.time())
     s["transitioned"] = True
     s["index"] = s.get("index", 0) + 1
-    # Reset skip debounce for next question (if any)
-    s["skip_disabled"] = False
+    s["skip_disabled"] = False  # reset for next question
     return True
 
 
@@ -614,14 +558,10 @@ async def question_timeout_by_handle(context, user_id, q_index, token):
     if not s:
         return
     if s.get("timeout_token") != token:
-        logger.debug("Stale timeout callback ignored for user %s", user_id)
         return
 
     async with s["lock"]:
-        if s.get("transitioned"):
-            return
-        if s.get("timeout_token") != token:
-            logger.debug("Stale timeout callback ignored inside lock for user %s", user_id)
+        if s.get("transitioned") or s.get("timeout_token") != token:
             return
 
         loop = asyncio.get_running_loop()
@@ -635,11 +575,6 @@ async def question_timeout_by_handle(context, user_id, q_index, token):
                 logger.exception("Failed to reschedule early timeout")
             return
 
-        lateness = max(0.0, now - deadline)
-        if lateness > 0.001:
-            metrics["timeout_lateness_count"] += 1
-            logger.debug("Timeout handler lateness for user %s: %.3fs", user_id, lateness)
-
         s["skipped_timeout"] = s.get("skipped_timeout", 0) + 1
         metrics["skipped_questions"] += 1
 
@@ -649,7 +584,6 @@ async def question_timeout_by_handle(context, user_id, q_index, token):
             s["in_question"] = False
             s["timeout_token"] = None
             s["timeout_handle"] = None
-            # Reset skip debounce for next question
             s["skip_disabled"] = False
             await advance_question(context, user_id)
         except Exception:
@@ -670,49 +604,26 @@ async def send_question(context, user_id):
     q = s["questions"][s["index"]]
     s["current_q_index"] = s["index"]
     s["transitioned"] = False
-
-    # Reset skip debounce for the new question
     s["skip_disabled"] = False
-    s["poll_message_id"] = None  # clear previous poll id for safety
+    s["poll_message_id"] = None
 
     if q.get("_invalid_reason"):
         metrics["skipped_questions"] += 1
-        logger.warning("Skipping invalid question for user %s at index %s: reason=%s", user_id, s["index"], q.get("_invalid_reason"))
         try:
-            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Question {s['index'] + 1} skipped due to invalid data in the source. It will not be counted.")
+            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Question {s['index'] + 1} skipped due to invalid data. It will not be counted.")
         except Exception:
             pass
         s["explanations"].append({
             "q_no": s["index"] + 1,
             "question": q.get("question", ""),
-            "explanation": "Skipped due to invalid question data (please contact content team)."
+            "explanation": "Skipped due to invalid question data."
         })
         s["skipped_invalid"] = s.get("skipped_invalid", 0) + 1
         s["last_action"] = ("auto_skip_invalid", time.time())
         await advance_question(context, user_id)
         return
-
-    question_text = q.get("question", "").replace("\\n", "\n")
-    safe_question = safe_escape(f"Q{s['index'] + 1}. {question_text}")
 
     correct_idx = parse_correct_option(q.get("correct_option"))
-    if correct_idx is None:
-        metrics["skipped_questions"] += 1
-        logger.warning("Invalid correct_option encountered at send_question for user %s index %s", user_id, s["index"])
-        try:
-            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Question {s['index'] + 1} skipped due to invalid data.")
-        except Exception:
-            pass
-        s["explanations"].append({
-            "q_no": s["index"] + 1,
-            "question": q.get("question", ""),
-            "explanation": "Skipped due to invalid question data (please contact content team)."
-        })
-        s["skipped_invalid"] = s.get("skipped_invalid", 0) + 1
-        s["last_action"] = ("auto_skip_invalid", time.time())
-        await advance_question(context, user_id)
-        return
-
     raw_options = [
         q.get("option_a", "") or "",
         q.get("option_b", "") or "",
@@ -720,34 +631,17 @@ async def send_question(context, user_id):
         q.get("option_d", "") or "",
     ]
     options = [o for o in raw_options if o and o.strip()]
-    if len(options) < 2:
-        metrics["skipped_questions"] += 1
-        logger.warning("Not enough options for user %s question index %s; skipping", user_id, s["index"])
-        try:
-            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Question {s['index'] + 1} skipped due to invalid options.")
-        except Exception:
-            pass
-        s["explanations"].append({
-            "q_no": s["index"] + 1,
-            "question": q.get("question", ""),
-            "explanation": "Skipped due to invalid options in source."
-        })
-        s["skipped_invalid"] = s.get("skipped_invalid", 0) + 1
-        s["last_action"] = ("auto_skip_invalid", time.time())
-        await advance_question(context, user_id)
-        return
 
-    if correct_idx < 0 or correct_idx >= 4 or not raw_options[correct_idx].strip():
+    if correct_idx is None or len(options) < 2 or correct_idx < 0 or correct_idx >= 4 or not raw_options[correct_idx].strip():
         metrics["skipped_questions"] += 1
-        logger.warning("Correct option index invalid for user %s question index %s", user_id, s["index"])
         try:
-            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Question {s['index'] + 1} skipped due to invalid correct option.")
+            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Question {s['index'] + 1} skipped due to invalid options/correct answer.")
         except Exception:
             pass
         s["explanations"].append({
             "q_no": s["index"] + 1,
             "question": q.get("question", ""),
-            "explanation": "Skipped due to invalid correct option in source."
+            "explanation": "Skipped due to invalid options/correct answer."
         })
         s["skipped_invalid"] = s.get("skipped_invalid", 0) + 1
         s["last_action"] = ("auto_skip_invalid", time.time())
@@ -766,14 +660,11 @@ async def send_question(context, user_id):
             reply_markup=_skip_keyboard(),
         )
 
-    priority = "user"
-    enqueued = await enqueue_send_poll(user_id, factory, session_user_id=user_id, priority=priority)
+    enqueued = await enqueue_send_poll(user_id, factory, session_user_id=user_id, priority="user")
     if not enqueued:
-        # Fallback: attempt synchronous send with retries so user still receives the poll
-        logger.warning("SEND-FALLBACK: queue full for user %s; attempting synchronous send", user_id)
+        # Fallback: synchronous send with retries
         try:
             result = await send_with_retries(context.bot, user_id, factory)
-            # record poll_message_id into session
             if result:
                 try:
                     async with s["lock"]:
@@ -791,8 +682,7 @@ async def send_question(context, user_id):
 
     s["in_question"] = True
     loop = asyncio.get_running_loop()
-    now = loop.time()
-    deadline = now + q.get("_time_limit", DEFAULT_QUESTION_TIME)
+    deadline = loop.time() + q.get("_time_limit", DEFAULT_QUESTION_TIME)
     s["q_deadline"] = deadline
     token = uuid.uuid4().hex
     s["timeout_token"] = token
@@ -810,7 +700,6 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     poll_answer = update.poll_answer
     user = poll_answer.user
     if not user:
-        logger.warning("Received anonymous poll answer; ignoring")
         return
     user_id = user.id
     s = sessions.get(user_id)
@@ -837,23 +726,18 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         deadline = s.get("q_deadline", 0)
         if deadline and now > deadline + GRACE_SECONDS:
             metrics["late_answers_treated_as_timeout"] += 1
-            logger.info("Late answer arrived for user %s (now=%.3f deadline=%.3f); treating as timeout-skip", user_id, now, deadline)
-
             _cancel_timeout_handle(s)
             _treat_late_answer_as_timeout_in_lock(s, user_id)
-
             now_ts = time.time()
             if now_ts - s.get("last_late_msg_ts", 0.0) > RATE_LIMIT_LATE_MSG_SECONDS:
                 try:
-                    await context.bot.send_message(chat_id=user_id, text="⏱ Your answer arrived after time expired and has been recorded as a timeout skip.")
+                    await context.bot.send_message(chat_id=user_id, text="⏱ Your answer arrived after time expired and was recorded as a timeout skip.")
                 except Exception:
                     pass
                 s["last_late_msg_ts"] = now_ts
-
             treated_late = True
         else:
             _cancel_timeout_handle(s)
-
             q = s["questions"][s["index"]]
             s["attempted"] += 1
             s["last_activity"] = time.time()
@@ -865,14 +749,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             selected = poll_answer.option_ids[0] if poll_answer.option_ids else None
             correct_idx = parse_correct_option(q.get("correct_option"))
-
             if selected is not None and correct_idx is not None and selected == correct_idx:
                 s["score"] += 1
                 s["marks"] += marks_for_q
             else:
                 s["wrong"] += 1
                 s["marks"] -= marks_for_q * neg_ratio_for_q
-
             record_explanation(s, q, s["index"] + 1)
 
     if treated_late:
@@ -938,6 +820,7 @@ async def handle_skip_callback(query, context):
 
         poll_msg_id = s.get("poll_message_id")
 
+    # Remove inline keyboard so button visually disables
     try:
         if poll_msg_id:
             await context.bot.edit_message_reply_markup(chat_id=user_id, message_id=poll_msg_id, reply_markup=None)
@@ -957,14 +840,12 @@ async def advance_question(context, user_id):
     s = sessions.get(user_id)
     if not s:
         return
-
     async with s["lock"]:
         if s.get("transitioned"):
             return
         s["transitioned"] = True
         s["index"] += 1
         s["in_question"] = False
-        # Reset skip debounce for the next question
         s["skip_disabled"] = False
 
     if s["index"] >= len(s["questions"]):
@@ -975,7 +856,7 @@ async def advance_question(context, user_id):
     await send_question(context, user_id)
 
 
-# ================= RESULT & ADMIN =================
+# ================= RESULT & ADMIN (HTML-safe) =================
 
 
 async def finish_quiz(context, user_id):
@@ -1004,51 +885,43 @@ async def finish_quiz(context, user_id):
         persist_daily_scores_to_disk()
 
     ranked = sorted(daily_scores.values(), key=lambda x: (-x["score"], x["time"]))[:10]
-
-    leaderboard = ""
+    leaderboard_lines = []
     for i, r in enumerate(ranked, 1):
         m, sec = divmod(r["time"], 60)
-        leaderboard += f"{i}. {r['name']} — {r['score']} | {m}m {sec}s\n"
+        leaderboard_lines.append(f"{i}. {html.escape(str(r['name']))} — {r['score']} | {m}m {sec}s")
+    leaderboard = "\n".join(leaderboard_lines) or "No completed attempts recorded yet."
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=(
-            "🏁 *Quiz Finished!*\n\n"
-            f"📝 Attempted: {s['attempted']}/{total}\n"
-            f"✅ Correct: {s['score']}\n"
-            f"❌ Wrong: {s['wrong']}\n"
-            f"⏭ Skipped: {skipped_total} (You: {skipped_user}; Timeout: {skipped_timeout}; System: {skipped_invalid})\n"
-            f"🎯 Marks: {round(s['marks'],2)}\n"
-            f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
-            "🏆 *Daily Leaderboard (Top 10)*\n"
-            f"{leaderboard}"
-        ),
-        parse_mode="MarkdownV2"
+    text = (
+        "🏁 <b>Quiz Finished!</b>\n\n"
+        f"📝 Attempted: {s['attempted']}/{total}\n"
+        f"✅ Correct: {s['score']}\n"
+        f"❌ Wrong: {s['wrong']}\n"
+        f"⏭ Skipped: {skipped_total} (You: {skipped_user}; Timeout: {skipped_timeout}; System: {skipped_invalid})\n"
+        f"🎯 Marks: {round(s['marks'],2)}\n"
+        f"⏱ Time: {time_taken//60}m {time_taken%60}s\n\n"
+        "🏆 <b>Daily Leaderboard (Top 10)</b>\n"
+        f"{html.escape(leaderboard)}"
     )
+    await context.bot.send_message(chat_id=user_id, text=text, parse_mode="HTML")
 
     if s["explanations"]:
-        header = "📖 *Simple Explanations*\n\n"
+        header = "📖 <b>Simple Explanations</b>\n\n"
         chunk = header
         for exp in s["explanations"]:
             q_no = exp.get("q_no")
-            q_text = exp.get("question", "")
-            expl_text = exp.get("explanation", "")
-            safe_q_text = safe_escape(q_text)
-            safe_expl_text = safe_escape(expl_text)
-            formatted = f"*Q{q_no}.* {safe_q_text}\n*📘Explanation:* {safe_expl_text}"
+            q_text = html.escape(exp.get("question", ""))
+            expl_text = html.escape(exp.get("explanation", ""))
+            formatted = f"<b>Q{q_no}.</b> {q_text}\n<b>📘Explanation:</b> {expl_text}"
             if len(chunk) + len(formatted) > 3800:
-                await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="MarkdownV2")
+                await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="HTML")
                 chunk = header
             chunk += formatted + "\n\n"
         if chunk.strip() != header.strip():
-            await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="MarkdownV2")
+            await context.bot.send_message(chat_id=user_id, text=chunk, parse_mode="HTML")
 
     try:
         if s.get("timeout_handle"):
-            try:
-                s["timeout_handle"].cancel()
-            except Exception:
-                pass
+            s["timeout_handle"].cancel()
     except Exception:
         pass
 
@@ -1080,24 +953,22 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     attempted_count, ranked = _compute_attempted_count_and_leaderboard()
     quiz_date = current_quiz_date_key or "N/A"
-    leaderboard_text = ""
+    lines = []
     for i, r in enumerate(ranked, 1):
-        name = safe_escape(str(r.get("name", "Unknown")))
+        name = html.escape(str(r.get("name", "Unknown")))
         score = r.get("score", 0)
         t = r.get("time", 0)
         m, sec = divmod(int(t), 60)
-        leaderboard_text += f"{i}. {name} — {score} | {m}m {sec}s\n"
-    if not leaderboard_text:
-        leaderboard_text = "No completed attempts recorded yet.\n"
-    safe_quiz_date = safe_escape(str(quiz_date))
+        lines.append(f"{i}. {name} — {score} | {m}m {sec}s")
+    leaderboard_text = "\n".join(lines) or "No completed attempts recorded yet."
     text = (
-        f"*Admin Daily Leaderboard*\n\n"
-        f"*Quiz date key:* `{safe_quiz_date}`\n"
-        f"*Total attempted:* {attempted_count}\n\n"
-        f"*Top 10*\n"
-        f"{leaderboard_text}"
+        f"<b>Admin Daily Leaderboard</b>\n\n"
+        f"<b>Quiz date key:</b> {html.escape(str(quiz_date))}\n"
+        f"<b>Total attempted:</b> {attempted_count}\n\n"
+        f"<b>Top 10</b>\n"
+        f"{html.escape(leaderboard_text)}"
     )
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def admin_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1106,7 +977,7 @@ async def admin_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ You are not authorized to use this command.")
         return
     text = (
-        f"*Metrics*\n\n"
+        f"<b>Metrics</b>\n\n"
         f"skipped_questions: {metrics['skipped_questions']}\n"
         f"late_answers_rejected: {metrics['late_answers_rejected']}\n"
         f"late_answers_treated_as_timeout: {metrics['late_answers_treated_as_timeout']}\n"
@@ -1118,7 +989,7 @@ async def admin_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"queue_rejections_user: {metrics['queue_rejections_user']}\n"
         f"queue_rejections_admin: {metrics['queue_rejections_admin']}\n"
     )
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def admin_force_preload(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1129,46 +1000,39 @@ async def admin_force_preload(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     args = context.args or []
 
-    if sessions:
-        risky = []
-        now_loop = asyncio.get_event_loop().time()
-        for uid, s in sessions.items():
-            total_q = len(s.get("questions", []))
-            idx = s.get("index", 0)
-            if idx >= 0 and idx == total_q - 1 and s.get("in_question"):
-                deadline = s.get("q_deadline") or 0
-                if deadline and (deadline - now_loop) <= FORCE_PRELOAD_FINAL_WINDOW_SECONDS:
-                    risky.append(uid)
-        if risky and "confirm" not in args:
-            await update.message.reply_text(
-                "⚠️ Some users are in the final question window. Running /force_preload now may corrupt results.\n"
-                "If you really want to proceed, run: /force_preload confirm",
-                parse_mode="MarkdownV2"
-            )
-            return
-
+    risky = []
+    now_loop = asyncio.get_event_loop().time()
+    for uid, s in sessions.items():
+        total_q = len(s.get("questions", []))
+        idx = s.get("index", 0)
+        if idx >= 0 and idx == total_q - 1 and s.get("in_question"):
+            deadline = s.get("q_deadline") or 0
+            if deadline and (deadline - now_loop) <= FORCE_PRELOAD_FINAL_WINDOW_SECONDS:
+                risky.append(uid)
+    if risky and "confirm" not in args:
+        await update.message.reply_text(
+            "⚠️ Some users are in the final question window. Run /force_preload confirm to proceed anyway.",
+            parse_mode="HTML"
+        )
+        return
     if sessions and "confirm" not in args and not risky:
         await update.message.reply_text(
-            "⚠️ There are active quizzes in progress. Running force preload now may mix results across quiz dates.\n"
-            "If you really want to proceed, run: /force_preload confirm",
-            parse_mode="MarkdownV2"
+            "⚠️ There are active quizzes in progress. Run /force_preload confirm to proceed anyway.",
+            parse_mode="HTML"
         )
         return
 
-    await update.message.reply_text("⏳ Fetching quiz CSV and initializing quiz date...", parse_mode="MarkdownV2")
-
+    await update.message.reply_text("⏳ Fetching quiz CSV and initializing quiz date...", parse_mode="HTML")
     try:
         quiz_date_key = await preload_quiz_if_needed()
     except Exception:
         logger.exception("Force preload failed to fetch CSV")
-        await update.message.reply_text("❌ Failed to fetch CSV. Check logs for details.", parse_mode="MarkdownV2")
+        await update.message.reply_text("❌ Failed to fetch CSV. Check logs for details.", parse_mode="HTML")
         return
-
     if not quiz_date_key:
-        await update.message.reply_text("⚠️ No valid quiz date found in the CSV for the effective date.", parse_mode="MarkdownV2")
+        await update.message.reply_text("⚠️ No valid quiz date found for the effective date.", parse_mode="HTML")
         return
-
-    await update.message.reply_text(f"✅ Preloaded quiz for *{safe_escape(quiz_date_key)}*.", parse_mode="MarkdownV2")
+    await update.message.reply_text(f"✅ Preloaded quiz for <b>{html.escape(quiz_date_key)}</b>.", parse_mode="HTML")
 
 
 # ================= BACKGROUND TASKS =================
@@ -1177,10 +1041,7 @@ async def admin_force_preload(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def _wait_until_next_cutoff():
     now = now_ist()
     today_cutoff = datetime.combine(now.date(), dtime(hour=QUIZ_SWITCH_HOUR, minute=0), IST)
-    if now >= today_cutoff:
-        next_cutoff = today_cutoff + timedelta(days=1)
-    else:
-        next_cutoff = today_cutoff
+    next_cutoff = today_cutoff if now < today_cutoff else today_cutoff + timedelta(days=1)
     return (next_cutoff - now).total_seconds()
 
 
@@ -1196,27 +1057,23 @@ def _session_integrity_check():
 
 
 async def daily_preload_task(app):
-    global current_quiz_date_key
     logger.info("BACKGROUND: daily preload task started")
     while not _shutdown_event.is_set():
         wait_seconds = await _wait_until_next_cutoff()
-        logger.info("Preload task sleeping for %.0f seconds until next cutoff", wait_seconds)
+        logger.info("Preload task sleeping for %.0f seconds", wait_seconds)
         try:
             await asyncio.wait_for(_shutdown_event.wait(), timeout=wait_seconds)
             break
         except asyncio.TimeoutError:
             pass
-
         if _shutdown_event.is_set():
             break
-
         try:
             await preload_quiz_if_needed()
         except Exception:
             logger.exception("Failed to fetch CSV at cutoff; will retry next day.")
             metrics["preload_failures"] += 1
             await asyncio.sleep(60)
-            continue
 
 
 async def cleanup_sessions_task():
@@ -1242,7 +1099,6 @@ async def cleanup_sessions_task():
             sessions.pop(uid, None)
 
         _session_integrity_check()
-
         try:
             await asyncio.wait_for(_shutdown_event.wait(), timeout=60)
             break
@@ -1321,6 +1177,23 @@ def run_unit_tests():
 # ================= MAIN =================
 
 
+async def _post_init(application):
+    # Confirm bot identity (helps verify token and connectivity)
+    try:
+        me = await application.bot.get_me()
+        logger.info("Bot started as @%s (id=%s)", me.username, me.id)
+    except Exception:
+        logger.exception("Failed to get bot identity; check BOT_TOKEN and network")
+
+    # Preload and start background workers deterministically
+    await preload_quiz_if_needed()
+    logger.info("BACKGROUND: starting send worker, preload and cleanup tasks")
+    t_send = asyncio.create_task(_send_worker_loop(application))
+    t_preload = asyncio.create_task(daily_preload_task(application))
+    t_cleanup = asyncio.create_task(cleanup_sessions_task())
+    _background_tasks.extend([t_send, t_preload, t_cleanup])
+
+
 def main():
     if "test" in sys.argv:
         ok = run_unit_tests()
@@ -1330,6 +1203,7 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(PollAnswerHandler(handle_answer))
@@ -1338,27 +1212,11 @@ def main():
     app.add_handler(CommandHandler("admin_metrics", admin_metrics))
     app.add_handler(CommandHandler("force_preload", admin_force_preload))
 
-    async def _start_background_tasks(application):
-        # preload and start workers
-        await preload_quiz_if_needed()
-        logger.info("BACKGROUND: starting send worker, preload and cleanup tasks")
-        t_send = asyncio.create_task(_send_worker_loop(application))
-        t_preload = asyncio.create_task(daily_preload_task(application))
-        t_cleanup = asyncio.create_task(cleanup_sessions_task())
-        _background_tasks.extend([t_send, t_preload, t_cleanup])
+    # Deterministic post-init
+    app.post_init = _post_init
 
-    app.post_init = _start_background_tasks
-
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(_shutdown(app)))
-        except NotImplementedError:
-            pass
-
-    app.run_polling()
-
+    # Allow all update types we use (messages, callback_query, poll_answer)
+    app.run_polling(allowed_updates=["message", "callback_query", "poll_answer"])
 
 if __name__ == "__main__":
     main()
-```
