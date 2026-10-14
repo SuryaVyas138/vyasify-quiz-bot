@@ -26,8 +26,9 @@ from telegram.ext import (
 
 # ================= CONFIGURATION =================
 
-# 🔴 Replace with your actual Bot Token
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8421320228:AAFLevvW4LU0Qu2682S9dxR2LdmlJHFe3OM")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN environment variable not set. Please set it in systemd or environment.")
 ADMIN_ID = 2053638316
 
 # Google Sheet CSV URLs (Direct instant export + CDN fallback + Apps Script Web App)
