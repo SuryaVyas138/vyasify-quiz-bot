@@ -24,26 +24,128 @@ from telegram.ext import (
     CallbackContext,
 )
 
-# ================= CONFIGURATION =================
+# ================= CONFIGURATION & CONSTANTS =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable not set. Please set it in systemd or environment.")
 ADMIN_ID = 2053638316
 
+# API Endpoints for Dynamic Settings & Leaderboard Sync
+CONFIG_API_URL = os.environ.get("CONFIG_API_URL", "https://vyasify.in/api/telegram-bot/config")
+LEADERBOARD_API_URL = os.environ.get("LEADERBOARD_API_URL", "https://vyasify.in/api/telegram-bot/leaderboard")
+
 # Google Sheet CSV URLs (Direct instant export + CDN fallback + Apps Script Web App)
 QUIZ_CSV_URL = "https://docs.google.com/spreadsheets/d/15JMXTiM1AbI0LAh85R26pBo459vDG-G1i59Vqz6a3wg/export?format=csv&gid=0"
 FALLBACK_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT6NEUPMF8_uGPSXuX5pfxKypuJIdmCMIUs1p6vWe3YRwQK-o5qd_adVHG6XCjUNyg00EsnNMJZqz8C/pub?output=csv"
 APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbysyuvXUbTu65lRIpBHpihOKsELv0-92fQN71SbLqC1laDTiN3PDkJqIOVIjMWxx3z8iQ/exec"
 
-# ⚙️ SCORING RULES
-CORRECT_MARK = 2.0
-WRONG_MARK = 0.33
-DEFAULT_TIME = 20
-CYCLE_HOUR = 9  # Updates at 09:00 AM IST
+# Default Scoring & Lifecycle Fallbacks
+DEFAULT_CORRECT_MARK = 2.0
+DEFAULT_WRONG_MARK = 0.33
+DEFAULT_TIME = 90
+DEFAULT_CYCLE_HOUR = 9  # Updates at 09:00 AM IST
 
-# File to save leaderboard
+# File to save local fallback leaderboard
 LEADERBOARD_FILE = "leaderboard.json"
+
+# Default configuration schema (matches Jarvis Admin Defaults)
+DEFAULT_CONFIG = {
+    "botEnabled": True,
+    "adminId": 2053638316,
+    "cycleHour": 9,
+    "defaultTimeSeconds": 90,
+    "maxQuestions": 10,
+    "correctMark": 2.0,
+    "wrongMark": 0.33,
+    "negativeRatio": 0.66,
+    "skipMark": 0.0,
+    "stylizeNameWithEmojiSquares": False,
+    "welcomeTitleTemplate": "📘 Welcome <b>{name}</b> to Vyasify Daily Quiz",
+    "welcomeSubtitle": "This is a daily practice platform for aspirants of 🎯 UPSC | SSC | Regulatory Body Examinations",
+    "welcomeTopicTemplate": "<blockquote>⭐ Today's Topic: <b>{topic}</b> ❞</blockquote>",
+    "welcomeDurationTemplate": "<blockquote>⏳ Time per Question: <b>{duration} Seconds</b></blockquote>",
+    "welcomeBullets": [
+        "🔷 Daily 10 questions strictly aligned to UPSC Prelims-oriented topics",
+        "✅ Correct Answer: +{correct_marks} Marks",
+        "❌ Negative Marking: -{wrong_marks} Marks",
+        "⏭ Skip: 0 Marks",
+        "📝 Timed questions to build exam temperament",
+        "📊 Score, Rank & Percentile for self-benchmarking",
+        "📖 Simple explanations for concept clarity"
+    ],
+    "welcomeCtaText": "👇 Tap below to start today’s quiz",
+    "startButtonText": "▶ Start Today's Quiz",
+    "helpButtonText": "ℹ How it works",
+    "backHomeButtonText": "🔙 Back to Menu",
+    "howItWorksTitle": "ℹ️ <b>How Vyasify Quiz Works</b>",
+    "howItWorksCycleHeader": "📅 <b>Daily Cycle:</b>",
+    "howItWorksCycleBody": "New questions are updated exactly at <b>09:00 AM IST</b>.\n• Before 9 AM: You get Yesterday's quiz.\n• After 9 AM: You get Today's quiz.",
+    "howItWorksTimerHeader": "⏱ <b>Timer Rules:</b>",
+    "howItWorksTimerBody": "Today, each question has a limit of <b>{duration} seconds</b>.\nIf the time runs out, the question is marked as <b>Skipped</b>.",
+    "howItWorksLeaderboardHeader": "🏆 <b>Leaderboard:</b>",
+    "howItWorksLeaderboardBody": "Ranks are calculated based on:\n1. Highest Score\n2. Lowest Time Taken\nThe leaderboard resets daily at 09:00 AM.",
+    "howItWorksFooter": "Good luck with your preparation! 📝",
+    "countdownEnabled": True,
+    "countdownDelaySeconds": 0.4,
+    "countdownInitText": "⏳ Initializing...",
+    "countdownFrames": [
+        "Quiz Starts in 3️⃣",
+        "Quiz Starts in 3️⃣ .",
+        "Quiz Starts in 3️⃣ . .",
+        "Quiz Starts in 2️⃣",
+        "Quiz Starts in 2️⃣ .",
+        "Quiz Starts in 2️⃣ . .",
+        "Quiz Starts in 1️⃣",
+        "Quiz Starts in 1️⃣ .",
+        "Quiz Starts in 1️⃣ . ."
+    ],
+    "countdownFinalTemplate": "🚀 Goodluck <b>{name}</b>! 🤝",
+    "scorecardGeneratingNotice": "🙏 Thank you for attempting today's quiz, <b>{name}</b>!\nGenerating your scorecard...",
+    "scorecardHeader": "🏁 <b>Quiz Finished!</b>",
+    "scorecardAttemptedLabel": "📝 Attempted:",
+    "scorecardCorrectLabel": "✅ Correct:",
+    "scorecardWrongLabel": "❌ Wrong:",
+    "scorecardSkippedLabel": "⏭ Skipped:",
+    "scorecardMarksLabel": "🎯 Marks:",
+    "scorecardTimeLabel": "⏱ Time:",
+    "scorecardLeaderboardTitle": "🏆 <b>Daily Leaderboard (Top 10)</b>",
+    "leaderboardRowTemplate": "{rank}. <b>{name}</b> — {score} | {time}",
+    "explanationsHeader": "📖 <b>Explanations</b>",
+    "explanationsDivider": "------------------------------------------------"
+}
+
+# ================= DYNAMIC CONFIG CACHE =================
+
+_cached_config = None
+_cached_config_time = 0
+
+def get_bot_config():
+    """
+    Fetches dynamic configuration from Vyasify API with a 5-second TTL cache.
+    Ensures instant reflection of any changes made in Jarvis Admin Settings
+    without requiring a server or bot restart.
+    """
+    global _cached_config, _cached_config_time
+    now = time.time()
+    if _cached_config is not None and (now - _cached_config_time) < 5:
+        return _cached_config
+    
+    try:
+        res = requests.get(CONFIG_API_URL, timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("success") and "config" in data:
+                merged = {**DEFAULT_CONFIG, **data["config"]}
+                _cached_config = merged
+                _cached_config_time = now
+                return _cached_config
+    except Exception as e:
+        print(f"[Config API] Fetch failed, using cached/fallback: {e}")
+    
+    if _cached_config is not None:
+        return _cached_config
+    return DEFAULT_CONFIG
 
 # ================= GLOBAL STATE =================
 
@@ -53,39 +155,31 @@ leaderboard = {}
 # ================= HELPER FUNCTIONS =================
 
 def now_ist():
-    """
-    Returns current datetime in IST (UTC + 5:30).
-    Manually calculated to ensure server independence.
-    """
+    """Returns current datetime in IST (UTC + 5:30)."""
     return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
 def get_quiz_date_key():
     """
-    Determines the active quiz date based on the 09:00 AM cycle.
-    - Time < 09:00 AM: Fetch Yesterday's Quiz
-    - Time >= 09:00 AM: Fetch Today's Quiz
+    Determines the active quiz date based on the cycle hour from dynamic config.
+    - Time < cycleHour: Fetch Yesterday's Quiz
+    - Time >= cycleHour: Fetch Today's Quiz
     """
+    cfg = get_bot_config()
+    cycle_hr = int(cfg.get("cycleHour", DEFAULT_CYCLE_HOUR))
     now = now_ist()
     
-    if now.hour < CYCLE_HOUR:
-        # Before 9 AM: Fetch Yesterday's Quiz
+    if now.hour < cycle_hr:
         target_date = now.date() - timedelta(days=1)
     else:
-        # After 9 AM: Fetch Today's Quiz
         target_date = now.date()
         
     return target_date.isoformat()
 
 def clean_text(text):
-    """
-    Robust text cleaner for HTML parsing.
-    1. Replaces literal '\\n' with actual newline.
-    2. Escapes HTML special characters (<, >, &) to prevent injection/crashes.
-    """
-    if not text: return ""
-    # Fix Newlines first
-    text = text.replace('\\n', '\n').replace('\r\n', '\n')
-    # Escape HTML characters
+    """Robust text cleaner for Telegram HTML parsing."""
+    if not text:
+        return ""
+    text = str(text).replace('\\n', '\n').replace('\r\n', '\n')
     return html.escape(text)
 
 def format_time(seconds):
@@ -94,8 +188,42 @@ def format_time(seconds):
     return f"{m}m {s}s"
 
 def truncate(text, limit=100):
-    text = text.replace("\\n", " ").strip()
+    if not text:
+        return ""
+    text = str(text).replace("\\n", " ").strip()
     return text if len(text) <= limit else text[:limit - 3] + "..."
+
+def stylize_name_squared(input_str: str) -> str:
+    """
+    Transforms characters to enclosed alphanumeric emoji block letters:
+    e.g. SURYA -> 🆂🆄🆁🆈🅰
+    """
+    if not input_str:
+        return ""
+    special_map = {
+        'A': '🅰',
+        'B': '🅱',
+        'O': '🅾',
+        'P': '🅿'
+    }
+    result = []
+    for char in input_str.upper():
+        if char in special_map:
+            result.append(special_map[char])
+        elif 'A' <= char <= 'Z':
+            result.append(chr(0x1F170 + (ord(char) - 65)))
+        else:
+            result.append(char)
+    return "".join(result)
+
+def render_template(template_str: str, variables: dict) -> str:
+    """Replaces placeholders like {name}, {topic}, {duration}, {correct_marks}, etc."""
+    if not template_str:
+        return ""
+    rendered = str(template_str)
+    for k, v in variables.items():
+        rendered = rendered.replace(f"{{{k}}}", str(v if v is not None else ""))
+    return rendered
 
 # ================= DATA MANAGEMENT =================
 
@@ -112,12 +240,36 @@ def save_leaderboard():
     with open(LEADERBOARD_FILE, "w") as f:
         json.dump(leaderboard, f)
 
+def get_live_leaderboard(date_key):
+    """
+    Fetches the live ranked leaderboard for the specified date from Vyasify API.
+    Falls back to local leaderboard.json if API is unavailable.
+    """
+    try:
+        res = requests.get(f"{LEADERBOARD_API_URL}?date={date_key}", timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("success") and "leaderboard" in data:
+                return data["leaderboard"]
+    except Exception as e:
+        print(f"[Leaderboard API] Get error, falling back to local: {e}")
+
+    load_leaderboard()
+    current_data = leaderboard.get(date_key, {})
+    ranked = sorted(
+        current_data.values(),
+        key=lambda x: (-x["score"], x["time"])
+    )
+    return ranked
+
 def fetch_questions(date_key=None):
     """
     Fetches questions for a specific date (YYYY-MM-DD).
-    If no date provided, calculates based on 9 AM logic.
     Supports multi-tier retrieval: Direct CSV -> Cached CSV -> Apps Script WebApp -> Vyasify API
     """
+    cfg = get_bot_config()
+    default_t = int(cfg.get("defaultTimeSeconds", DEFAULT_TIME))
+
     # Determine target date
     if date_key:
         target_date = datetime.strptime(date_key, "%Y-%m-%d").date()
@@ -144,7 +296,7 @@ def fetch_questions(date_key=None):
                         if time_val and time_val.isdigit():
                             row["_time"] = int(time_val)
                         else:
-                            row["_time"] = DEFAULT_TIME
+                            row["_time"] = default_t
                         valid_questions.append(row)
                 except Exception:
                     continue
@@ -165,7 +317,7 @@ def fetch_questions(date_key=None):
             for q in qs:
                 clean_q = {k.strip(): v for k, v in q.items()}
                 time_val = str(clean_q.get("time", "")).strip()
-                clean_q["_time"] = int(time_val) if time_val.isdigit() else DEFAULT_TIME
+                clean_q["_time"] = int(time_val) if time_val.isdigit() else default_t
                 valid_questions.append(clean_q)
             if valid_questions:
                 return valid_questions
@@ -196,10 +348,10 @@ def fetch_questions(date_key=None):
                     "correct_option": clean_correct,
                     "explanation": q.get("explanation", ""),
                     "source": "Vyasify Current Affairs",
-                    "time": 90,
-                    "_time": 90,
-                    "marks": 2,
-                    "negative_ratio": 0.66
+                    "time": default_t,
+                    "_time": default_t,
+                    "marks": cfg.get("correctMark", DEFAULT_CORRECT_MARK),
+                    "negative_ratio": cfg.get("negativeRatio", 0.66)
                 }
                 valid_questions.append(row_fmt)
             if valid_questions:
@@ -212,9 +364,12 @@ def fetch_questions(date_key=None):
 # ================= KEYBOARDS =================
 
 def start_keyboard():
+    cfg = get_bot_config()
+    start_label = cfg.get("startButtonText") or "▶ Start Today's Quiz"
+    help_label = cfg.get("helpButtonText") or "ℹ How it works"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶ Start Today's Quiz", callback_data="action_start")],
-        [InlineKeyboardButton("ℹ How it works", callback_data="action_help")]
+        [InlineKeyboardButton(start_label, callback_data="action_start")],
+        [InlineKeyboardButton(help_label, callback_data="action_help")]
     ])
 
 def skip_keyboard(idx):
@@ -223,47 +378,84 @@ def skip_keyboard(idx):
     ])
 
 def back_home_keyboard():
+    cfg = get_bot_config()
+    back_label = cfg.get("backHomeButtonText") or "🔙 Back to Menu"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔙 Back to Menu", callback_data="action_home")]
+        [InlineKeyboardButton(back_label, callback_data="action_home")]
     ])
 
 # ================= HANDLERS =================
 
 def welcome_user(update: Update, context: CallbackContext):
-    """Sends the styled Welcome Message."""
+    """Sends the customizable Welcome Message with instant config reflection."""
+    cfg = get_bot_config()
     user = update.effective_user
-    name = user.first_name.upper() if user.first_name else "ASPIRANT"
-    
-    # Fetch questions for the current cycle to get Topic and Time
+    raw_name = user.first_name if (user and user.first_name) else "ASPIRANT"
+
+    if cfg.get("stylizeNameWithEmojiSquares"):
+        disp_name = stylize_name_squared(raw_name)
+    else:
+        disp_name = raw_name.upper()
+
+    if not cfg.get("botEnabled", True):
+        maintenance_msg = "⚠️ <b>Daily Quiz Bot is currently undergoing scheduled maintenance.</b>\nPlease check back shortly!"
+        if update.callback_query:
+            update.callback_query.edit_message_text(text=maintenance_msg, parse_mode=ParseMode.HTML)
+        elif user:
+            context.bot.send_message(chat_id=user.id, text=maintenance_msg, parse_mode=ParseMode.HTML)
+        return
+
+    # Fetch questions for current cycle
     questions = fetch_questions()
-    
-    if questions:
-        if "topic" in questions[0]:
-            topic_name = questions[0]["topic"].strip()
-        else:
-            topic_name = "General Studies"
-        # Get duration from the first question
-        q_duration = questions[0].get("_time", DEFAULT_TIME)
+    default_t = int(cfg.get("defaultTimeSeconds", DEFAULT_TIME))
+    if questions and "topic" in questions[0]:
+        topic_name = questions[0]["topic"].strip()
+        q_duration = questions[0].get("_time", default_t)
     else:
         topic_name = "General Studies"
-        q_duration = DEFAULT_TIME
+        q_duration = default_t
 
-    # Styled Text with HTML Blockquotes
-    text = (
-        f"📘 Welcome <b>{clean_text(name)}</b> to Vyasify Daily Quiz\n\n"
-        "This is a daily practice platform for aspirants of 🎯 UPSC | SSC | Regulatory Body Examinations\n\n"
-        f"<blockquote>⭐ Today's Topic: <b>{clean_text(topic_name)}</b> ❞</blockquote>\n"
-        f"<blockquote>⏳ Time per Question: <b>{q_duration} Seconds</b></blockquote>\n\n"
-        "🔷 Daily 10 questions strictly aligned to UPSC Prelims-oriented topics\n\n"
-        f"✅ Correct Answer: +{int(CORRECT_MARK)} Marks\n"
-        f"❌ Negative Marking: -{WRONG_MARK} Marks\n"
-        "⏭ Skip: 0 Marks\n\n"
-        "📝 Timed questions to build exam temperament\n"
-        "📊 Score, Rank & Percentile for self-benchmarking\n"
-        "📖 Simple explanations for concept clarity\n\n"
-        "👇 Tap below to start today’s quiz"
-    )
-    
+    corr_m = cfg.get("correctMark", DEFAULT_CORRECT_MARK)
+    corr_m_str = str(int(corr_m)) if corr_m == int(corr_m) else str(corr_m)
+    wrong_m = cfg.get("wrongMark", DEFAULT_WRONG_MARK)
+    wrong_m_str = str(wrong_m)
+    neg_ratio = cfg.get("negativeRatio", 0.66)
+
+    template_vars = {
+        "name": clean_text(disp_name),
+        "topic": clean_text(topic_name),
+        "duration": q_duration,
+        "correct_marks": corr_m_str,
+        "wrong_marks": wrong_m_str,
+        "negative_ratio": neg_ratio,
+    }
+
+    title = render_template(cfg.get("welcomeTitleTemplate", "📘 Welcome <b>{name}</b> to Vyasify Daily Quiz"), template_vars)
+    subtitle = cfg.get("welcomeSubtitle", "")
+    topic_box = render_template(cfg.get("welcomeTopicTemplate", "<blockquote>⭐ Today's Topic: <b>{topic}</b> ❞</blockquote>"), template_vars)
+    duration_box = render_template(cfg.get("welcomeDurationTemplate", "<blockquote>⏳ Time per Question: <b>{duration} Seconds</b></blockquote>"), template_vars)
+
+    bullet_lines = []
+    for b in cfg.get("welcomeBullets", []):
+        bullet_lines.append(render_template(b, template_vars))
+    bullets_text = "\n".join(bullet_lines)
+
+    cta = cfg.get("welcomeCtaText", "👇 Tap below to start today’s quiz")
+
+    parts = [title]
+    if subtitle:
+        parts.append(subtitle)
+    if topic_box:
+        parts.append(topic_box)
+    if duration_box:
+        parts.append(duration_box)
+    if bullets_text:
+        parts.append(bullets_text)
+    if cta:
+        parts.append(cta)
+
+    text = "\n\n".join(parts)
+
     try:
         if update.callback_query:
             update.callback_query.edit_message_text(
@@ -271,7 +463,7 @@ def welcome_user(update: Update, context: CallbackContext):
                 parse_mode=ParseMode.HTML,
                 reply_markup=start_keyboard()
             )
-        else:
+        elif user:
             context.bot.send_message(
                 chat_id=user.id,
                 text=text,
@@ -279,40 +471,51 @@ def welcome_user(update: Update, context: CallbackContext):
                 reply_markup=start_keyboard()
             )
     except:
-        context.bot.send_message(
-            chat_id=user.id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=start_keyboard()
-        )
+        if user:
+            context.bot.send_message(
+                chat_id=user.id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=start_keyboard()
+            )
 
 def show_how_it_works(update: Update, context: CallbackContext):
-    """Displays the How It Works information."""
-    
-    # Fetch active questions to display correct duration
+    """Displays the How It Works information with dynamic templates."""
+    cfg = get_bot_config()
     questions = fetch_questions()
+    default_t = int(cfg.get("defaultTimeSeconds", DEFAULT_TIME))
     if questions:
-        q_duration = questions[0].get("_time", DEFAULT_TIME)
+        q_duration = questions[0].get("_time", default_t)
     else:
-        q_duration = DEFAULT_TIME
+        q_duration = default_t
 
-    text = (
-        "ℹ️ <b>How Vyasify Quiz Works</b>\n\n"
-        "📅 <b>Daily Cycle:</b> \n"
-        "New questions are updated exactly at <b>09:00 AM IST</b>. \n"
-        "• Before 9 AM: You get Yesterday's quiz.\n"
-        "• After 9 AM: You get Today's quiz.\n\n"
-        "⏱ <b>Timer Rules:</b> \n"
-        f"Today, each question has a limit of <b>{q_duration} seconds</b>. \n"
-        "If the time runs out, the question is marked as <b>Skipped</b>.\n\n"
-        "🏆 <b>Leaderboard:</b> \n"
-        "Ranks are calculated based on: \n"
-        "1. Highest Score\n"
-        "2. Lowest Time Taken\n"
-        "The leaderboard resets daily at 09:00 AM.\n\n"
-        "Good luck with your preparation! 📝"
-    )
-    
+    cycle_hr = int(cfg.get("cycleHour", DEFAULT_CYCLE_HOUR))
+    cycle_time_str = f"{cycle_hr:02d}:00 AM IST"
+
+    vars = {
+        "duration": q_duration,
+        "cycle_hour": cycle_hr,
+        "cycle_time": cycle_time_str,
+    }
+
+    title = cfg.get("howItWorksTitle", "ℹ️ <b>How Vyasify Quiz Works</b>")
+    cycle_h = cfg.get("howItWorksCycleHeader", "📅 <b>Daily Cycle:</b>")
+    cycle_b = render_template(cfg.get("howItWorksCycleBody", ""), vars)
+    timer_h = cfg.get("howItWorksTimerHeader", "⏱ <b>Timer Rules:</b>")
+    timer_b = render_template(cfg.get("howItWorksTimerBody", ""), vars)
+    lb_h = cfg.get("howItWorksLeaderboardHeader", "🏆 <b>Leaderboard:</b>")
+    lb_b = render_template(cfg.get("howItWorksLeaderboardBody", ""), vars)
+    footer = cfg.get("howItWorksFooter", "Good luck with your preparation! 📝")
+
+    parts = [
+        title,
+        f"{cycle_h}\n{cycle_b}",
+        f"{timer_h}\n{timer_b}",
+        f"{lb_h}\n{lb_b}",
+        footer
+    ]
+    text = "\n\n".join(p for p in parts if p.strip())
+
     update.callback_query.edit_message_text(
         text=text,
         parse_mode=ParseMode.HTML,
@@ -320,11 +523,22 @@ def show_how_it_works(update: Update, context: CallbackContext):
     )
 
 def start_quiz_session(update: Update, context: CallbackContext):
-    """Initializes the quiz session with Build-Up Wave animation."""
+    """Initializes the quiz session with dynamic Build-Up Wave animation & configs."""
+    cfg = get_bot_config()
     uid = update.effective_user.id
-    name = update.effective_user.first_name if update.effective_user.first_name else "Aspirant"
+    raw_name = update.effective_user.first_name if update.effective_user.first_name else "Aspirant"
     
-    # 1. Cleanup
+    if cfg.get("stylizeNameWithEmojiSquares"):
+        disp_name = stylize_name_squared(raw_name)
+    else:
+        disp_name = raw_name
+
+    # Check bot enabled
+    if not cfg.get("botEnabled", True):
+        context.bot.send_message(uid, "⚠️ <b>Daily Quiz Bot is currently paused by admin.</b>", parse_mode=ParseMode.HTML)
+        return
+
+    # 1. Cleanup previous session
     if uid in sessions:
         try:
             if sessions[uid].get("poll_msg_id"):
@@ -336,7 +550,6 @@ def start_quiz_session(update: Update, context: CallbackContext):
         job.schedule_removal()
 
     # 2. Fetch Data & Lock Date Key
-    # We lock the key now so scores save to the correct day even if time crosses 9 AM during quiz
     current_date_key = get_quiz_date_key()
     questions = fetch_questions(current_date_key)
     
@@ -344,41 +557,30 @@ def start_quiz_session(update: Update, context: CallbackContext):
         context.bot.send_message(uid, "❌ <b>No quiz available for the current cycle.</b> \n(Next update at 09:00 AM IST).", parse_mode=ParseMode.HTML)
         return
 
-    # 3. Build-Up Wave Animation (With Emojis & Text)
-    try:
-        msg = context.bot.send_message(uid, "⏳ Initializing...", parse_mode=ParseMode.HTML)
-        
-        # 3 Series
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 3️⃣", parse_mode=ParseMode.HTML)
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 3️⃣ .", parse_mode=ParseMode.HTML)
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 3️⃣ . .", parse_mode=ParseMode.HTML)
-        
-        # 2 Series
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 2️⃣", parse_mode=ParseMode.HTML)
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 2️⃣ .", parse_mode=ParseMode.HTML)
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 2️⃣ . .", parse_mode=ParseMode.HTML)
+    # Cap max questions if configured
+    max_q = int(cfg.get("maxQuestions", 10))
+    if max_q and len(questions) > max_q:
+        questions = questions[:max_q]
 
-        # 1 Series
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 1️⃣", parse_mode=ParseMode.HTML)
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 1️⃣ .", parse_mode=ParseMode.HTML)
-        time.sleep(0.5)
-        msg.edit_text("Quiz Starts in 1️⃣ . .", parse_mode=ParseMode.HTML)
-        
-        # GO
-        time.sleep(0.5)
-        msg.edit_text(f"🚀 Goodluck <b>{clean_text(name)}</b>! 🤝", parse_mode=ParseMode.HTML)
-        time.sleep(0.5)
-    except Exception as e:
-        # Fallback if animation fails (e.g. rate limits)
-        pass
+    # 3. Dynamic Build-Up Wave Animation
+    if cfg.get("countdownEnabled", True):
+        try:
+            init_text = cfg.get("countdownInitText", "⏳ Initializing...")
+            msg = context.bot.send_message(uid, init_text, parse_mode=ParseMode.HTML)
+            delay = float(cfg.get("countdownDelaySeconds", 0.4))
+            frames = cfg.get("countdownFrames", [])
+            for frame in frames:
+                time.sleep(delay)
+                msg.edit_text(frame, parse_mode=ParseMode.HTML)
+            
+            # Final Greeting
+            final_template = cfg.get("countdownFinalTemplate", "🚀 Goodluck <b>{name}</b>! 🤝")
+            final_text = render_template(final_template, {"name": clean_text(disp_name)})
+            time.sleep(delay)
+            msg.edit_text(final_text, parse_mode=ParseMode.HTML)
+            time.sleep(delay)
+        except Exception as e:
+            pass
 
     # 4. Initialize Session
     sessions[uid] = {
@@ -394,8 +596,12 @@ def start_quiz_session(update: Update, context: CallbackContext):
         "poll_id": None,
         "poll_msg_id": None,
         "start_time": time.time(),
-        "name": update.effective_user.full_name,
+        "name": update.effective_user.full_name or raw_name,
+        "disp_name": disp_name,
         "explanations": [],
+        "correct_mark": float(cfg.get("correctMark", DEFAULT_CORRECT_MARK)),
+        "wrong_mark": float(cfg.get("wrongMark", DEFAULT_WRONG_MARK)),
+        "divider": cfg.get("explanationsDivider", "------------------------------------------------"),
     }
 
     send_question(context, uid)
@@ -477,9 +683,10 @@ def handle_next_step(context, uid, status_label):
         status_emoji = "⏰ <b>Time Up</b>"
 
     q = s["questions"][s["index"]]
+    divider = s.get("divider", "------------------------------------------------")
     
     s["explanations"].append(
-        f"<b>Q{s['index']+1}.</b> {clean_text(q['question'])}\n\n{status_emoji}\n\n📘 <b>Explanation:</b>\n{clean_text(q.get('explanation', 'N/A'))}\n\n------------------------------------------------"
+        f"<b>Q{s['index']+1}.</b> {clean_text(q['question'])}\n\n{status_emoji}\n\n📘 <b>Explanation:</b>\n{clean_text(q.get('explanation', 'N/A'))}\n\n{divider}"
     )
 
     s["index"] += 1
@@ -505,18 +712,21 @@ def poll_answer_handler(update: Update, context: CallbackContext):
     selected = answer.option_ids[0]
 
     status_emoji = ""
+    correct_m = s.get("correct_mark", DEFAULT_CORRECT_MARK)
+    wrong_m = s.get("wrong_mark", DEFAULT_WRONG_MARK)
+    divider = s.get("divider", "------------------------------------------------")
 
     if selected == correct_idx:
-        s["marks"] += CORRECT_MARK
+        s["marks"] += correct_m
         s["correct"] += 1
         status_emoji = "✅ <b>Correct</b>"
     else:
-        s["marks"] -= WRONG_MARK
+        s["marks"] -= wrong_m
         s["wrong"] += 1
         status_emoji = "❌ <b>Wrong</b>"
 
     s["explanations"].append(
-        f"<b>Q{s['index']+1}.</b> {clean_text(q['question'])}\n\n{status_emoji}\n\n📘 <b>Explanation:</b>\n{clean_text(q.get('explanation', 'N/A'))}\n\n------------------------------------------------"
+        f"<b>Q{s['index']+1}.</b> {clean_text(q['question'])}\n\n{status_emoji}\n\n📘 <b>Explanation:</b>\n{clean_text(q.get('explanation', 'N/A'))}\n\n{divider}"
     )
 
     s["index"] += 1
@@ -553,50 +763,88 @@ def button_handler(update: Update, context: CallbackContext):
 def finish_quiz(context: CallbackContext, uid):
     s = sessions.pop(uid)
     day_key = s.get("date_key", get_quiz_date_key())
-    
+    cfg = get_bot_config()
+
     duration = time.time() - s["start_time"]
     final_score = round(s["marks"], 2)
     time_str = format_time(duration)
-    
+    user_display = s.get("disp_name", s["name"].upper())
+
+    # 1. Local fallback save
     leaderboard.setdefault(day_key, {})[str(uid)] = {
-        "name": s["name"].upper(),
+        "name": user_display,
         "score": final_score,
         "time": int(duration)
     }
     save_leaderboard()
 
+    # 2. Sync to Vyasify Web API
+    try:
+        requests.post(
+            LEADERBOARD_API_URL,
+            json={
+                "date": day_key,
+                "userId": str(uid),
+                "name": user_display,
+                "score": final_score,
+                "time": int(duration)
+            },
+            timeout=4
+        )
+    except Exception as e:
+        print(f"[Leaderboard Sync] API post error: {e}")
+
+    # Notice
+    gen_notice = render_template(
+        cfg.get("scorecardGeneratingNotice", "🙏 Thank you for attempting today's quiz, <b>{name}</b>!\nGenerating your scorecard..."),
+        {"name": clean_text(user_display)}
+    )
     context.bot.send_message(
         uid,
-        f"🙏 Thank you for attempting today's quiz, <b>{clean_text(s['name'])}</b>!\nGenerating your scorecard...",
+        gen_notice,
         parse_mode=ParseMode.HTML
     )
     time.sleep(1)
 
     attempted_count = s["correct"] + s["wrong"]
     
+    header = cfg.get("scorecardHeader", "🏁 <b>Quiz Finished!</b>")
+    lbl_att = cfg.get("scorecardAttemptedLabel", "📝 Attempted:")
+    lbl_cor = cfg.get("scorecardCorrectLabel", "✅ Correct:")
+    lbl_wro = cfg.get("scorecardWrongLabel", "❌ Wrong:")
+    lbl_skp = cfg.get("scorecardSkippedLabel", "⏭ Skipped:")
+    lbl_mrk = cfg.get("scorecardMarksLabel", "🎯 Marks:")
+    lbl_tim = cfg.get("scorecardTimeLabel", "⏱ Time:")
+    lb_title = cfg.get("scorecardLeaderboardTitle", "🏆 <b>Daily Leaderboard (Top 10)</b>")
+    row_tmpl = cfg.get("leaderboardRowTemplate", "{rank}. <b>{name}</b> — {score} | {time}")
+
     res_text = (
-        "🏁 <b>Quiz Finished!</b>\n\n"
-        f"📝 Attempted: {attempted_count}/{s['total_q']}\n"
-        f"✅ Correct: {s['correct']}\n"
-        f"❌ Wrong: {s['wrong']}\n"
-        f"⏭ Skipped: {s['skipped']}\n"
-        f"🎯 Marks: {final_score}\n"
-        f"⏱ Time: {time_str}\n\n"
-        "🏆 <b>Daily Leaderboard (Top 10)</b>\n\n"
+        f"{header}\n\n"
+        f"{lbl_att} {attempted_count}/{s['total_q']}\n"
+        f"{lbl_cor} {s['correct']}\n"
+        f"{lbl_wro} {s['wrong']}\n"
+        f"{lbl_skp} {s['skipped']}\n"
+        f"{lbl_mrk} {final_score}\n"
+        f"{lbl_tim} {time_str}\n\n"
+        f"{lb_title}\n\n"
     )
 
-    ranked = sorted(
-        leaderboard[day_key].values(),
-        key=lambda x: (-x["score"], x["time"])
-    )[:10]
+    ranked = get_live_leaderboard(day_key)[:10]
 
     for i, r in enumerate(ranked, 1):
         r_time = format_time(r['time'])
-        res_text += f"{i}. <b>{clean_text(r['name'])}</b> — {r['score']} | {r_time}\n"
+        row_str = render_template(row_tmpl, {
+            "rank": i,
+            "name": clean_text(r['name']),
+            "score": r['score'],
+            "time": r_time
+        })
+        res_text += f"{row_str}\n"
 
     context.bot.send_message(uid, res_text, parse_mode=ParseMode.HTML)
 
-    buffer = "📖 <b>Explanations</b>\n\n"
+    exp_header = cfg.get("explanationsHeader", "📖 <b>Explanations</b>")
+    buffer = f"{exp_header}\n\n"
     for exp in s["explanations"]:
         if len(buffer) + len(exp) > 3800:
             context.bot.send_message(uid, buffer, parse_mode=ParseMode.HTML)
@@ -610,22 +858,27 @@ def finish_quiz(context: CallbackContext, uid):
 
 def show_leaderboard(update: Update, context: CallbackContext):
     day_key = get_quiz_date_key()
-    load_leaderboard()
+    cfg = get_bot_config()
     
-    current_data = leaderboard.get(day_key, {})
+    ranked = get_live_leaderboard(day_key)[:10]
     
-    if not current_data:
+    if not ranked:
         update.message.reply_text("📉 No records yet for today's quiz cycle (since 9 AM). Be the first!", parse_mode=ParseMode.HTML)
         return
 
-    ranked = sorted(
-        current_data.values(),
-        key=lambda x: (-x["score"], x["time"])
-    )[:10]
+    lb_title = cfg.get("scorecardLeaderboardTitle", "🏆 <b>Daily Leaderboard (Top 10)</b>")
+    row_tmpl = cfg.get("leaderboardRowTemplate", "{rank}. <b>{name}</b> — {score} | {time}")
 
-    text = f"🏆 <b>Leaderboard ({day_key})</b>\n\n"
+    text = f"{lb_title} ({day_key})\n\n"
     for i, r in enumerate(ranked, 1):
-        text += f"{i}. <b>{clean_text(r['name'])}</b> — {r['score']} | {format_time(r['time'])}\n"
+        r_time = format_time(r['time'])
+        row_str = render_template(row_tmpl, {
+            "rank": i,
+            "name": clean_text(r['name']),
+            "score": r['score'],
+            "time": r_time
+        })
+        text += f"{row_str}\n"
     
     update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -660,7 +913,7 @@ def main():
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_handler))
 
-    print("✅ Vyasify Bot is Online...")
+    print("✅ Vyasify Dynamic Bot is Online...")
     updater.start_polling()
     updater.idle()
 
