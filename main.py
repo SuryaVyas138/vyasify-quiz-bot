@@ -339,7 +339,7 @@ def fetch_questions(date_key=None):
                     clean_correct = clean_correct[0]
                 row_fmt = {
                     "date": target_date.strftime("%d-%m-%Y"),
-                    "topic": q.get("sourceArticleTitle", "Current Affairs"),
+                    "topic": "Daily Current Affairs",
                     "question": q.get("question", ""),
                     "option_a": opts[0] if len(opts) > 0 else "",
                     "option_b": opts[1] if len(opts) > 1 else "",
@@ -347,7 +347,7 @@ def fetch_questions(date_key=None):
                     "option_d": opts[3] if len(opts) > 3 else "",
                     "correct_option": clean_correct,
                     "explanation": q.get("explanation", ""),
-                    "source": "Vyasify Current Affairs",
+                    "source": q.get("sourceArticleTitle", "Vyasify Current Affairs"),
                     "time": default_t,
                     "_time": default_t,
                     "marks": cfg.get("correctMark", DEFAULT_CORRECT_MARK),
@@ -408,11 +408,11 @@ def welcome_user(update: Update, context: CallbackContext):
     # Fetch questions for current cycle
     questions = fetch_questions()
     default_t = int(cfg.get("defaultTimeSeconds", DEFAULT_TIME))
-    if questions and "topic" in questions[0]:
+    if questions and "topic" in questions[0] and questions[0]["topic"].strip():
         topic_name = questions[0]["topic"].strip()
         q_duration = questions[0].get("_time", default_t)
     else:
-        topic_name = "General Studies"
+        topic_name = "Daily Current Affairs"
         q_duration = default_t
 
     corr_m = cfg.get("correctMark", DEFAULT_CORRECT_MARK)
@@ -774,7 +774,8 @@ def finish_quiz(context: CallbackContext, uid):
     leaderboard.setdefault(day_key, {})[str(uid)] = {
         "name": user_display,
         "score": final_score,
-        "time": int(duration)
+        "time": int(duration),
+        "platform": "telegram"
     }
     save_leaderboard()
 
@@ -787,7 +788,8 @@ def finish_quiz(context: CallbackContext, uid):
                 "userId": str(uid),
                 "name": user_display,
                 "score": final_score,
-                "time": int(duration)
+                "time": int(duration),
+                "platform": "telegram"
             },
             timeout=4
         )
@@ -833,11 +835,17 @@ def finish_quiz(context: CallbackContext, uid):
 
     for i, r in enumerate(ranked, 1):
         r_time = format_time(r['time'])
+        platform = r.get("platform", "telegram")
+        platform_icon = "🌐" if platform == "web" else "📱"
+        platform_badge = "🌐 Web" if platform == "web" else "📱 Bot"
         row_str = render_template(row_tmpl, {
             "rank": i,
-            "name": clean_text(r['name']),
+            "name": f"{platform_icon} {clean_text(r['name'])}",
             "score": r['score'],
-            "time": r_time
+            "time": r_time,
+            "platform": platform_badge,
+            "platform_badge": platform_badge,
+            "platform_icon": platform_icon
         })
         res_text += f"{row_str}\n"
 
@@ -872,11 +880,17 @@ def show_leaderboard(update: Update, context: CallbackContext):
     text = f"{lb_title} ({day_key})\n\n"
     for i, r in enumerate(ranked, 1):
         r_time = format_time(r['time'])
+        platform = r.get("platform", "telegram")
+        platform_icon = "🌐" if platform == "web" else "📱"
+        platform_badge = "🌐 Web" if platform == "web" else "📱 Bot"
         row_str = render_template(row_tmpl, {
             "rank": i,
-            "name": clean_text(r['name']),
+            "name": f"{platform_icon} {clean_text(r['name'])}",
             "score": r['score'],
-            "time": r_time
+            "time": r_time,
+            "platform": platform_badge,
+            "platform_badge": platform_badge,
+            "platform_icon": platform_icon
         })
         text += f"{row_str}\n"
     
