@@ -71,6 +71,73 @@ DEFAULT_CYCLE_HOUR = 9  # Updates at 09:00 AM IST
 
 # File to save local fallback leaderboard
 LEADERBOARD_FILE = "leaderboard.json"
+USERS_FILE = "users.json"
+users_db = {}
+
+def load_users():
+    global users_db
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                users_db = json.load(f)
+        except Exception as e:
+            print(f"[Users DB] Error loading users: {e}")
+            users_db = {}
+    
+    # Auto-seed from leaderboard so past quiz participants are preserved
+    try:
+        for day, participants in leaderboard.items():
+            if isinstance(participants, dict):
+                for uid_str, p in participants.items():
+                    if uid_str not in users_db and not str(uid_str).startswith("web_"):
+                        users_db[str(uid_str)] = {
+                            "id": int(uid_str) if str(uid_str).isdigit() else uid_str,
+                            "name": p.get("name", "Aspirant"),
+                            "source": "leaderboard"
+                        }
+    except Exception as e:
+        print(f"[Users DB] Error seeding from leaderboard: {e}")
+
+    # Ensure Admin ID is always registered
+    if str(ADMIN_ID) not in users_db:
+        users_db[str(ADMIN_ID)] = {
+            "id": ADMIN_ID,
+            "name": "Surya Vyas",
+            "source": "admin"
+        }
+    save_users()
+
+def save_users():
+    try:
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(users_db, f, indent=2)
+    except Exception as e:
+        print(f"[Users DB] Error saving users: {e}")
+
+def record_user(user):
+    if not user or not getattr(user, "id", None):
+        return
+    uid_str = str(user.id)
+    first_name = user.first_name or ""
+    username = user.username or ""
+    if uid_str not in users_db:
+        users_db[uid_str] = {
+            "id": user.id,
+            "name": first_name,
+            "username": username,
+            "joined_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+        }
+        save_users()
+    else:
+        changed = False
+        if first_name and users_db[uid_str].get("name") != first_name:
+            users_db[uid_str]["name"] = first_name
+            changed = True
+        if username and users_db[uid_str].get("username") != username:
+            users_db[uid_str]["username"] = username
+            changed = True
+        if changed:
+            save_users()
 
 # Default configuration schema (matches Jarvis Admin Defaults)
 DEFAULT_CONFIG = {
@@ -504,6 +571,8 @@ def welcome_user(update: Update, context: CallbackContext):
     """Sends the customizable Welcome Message with instant config reflection."""
     cfg = get_bot_config()
     user = update.effective_user
+    if user:
+        record_user(user)
     raw_name = user.first_name if (user and user.first_name) else "ASPIRANT"
 
     if cfg.get("stylizeNameWithEmojiSquares"):
@@ -1021,6 +1090,8 @@ def show_leaderboard(update: Update, context: CallbackContext):
     update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 def text_handler(update: Update, context: CallbackContext):
+    if update.effective_user:
+        record_user(update.effective_user)
     text = update.message.text.lower().strip()
     
     BANNED_WORDS = ["fuck", "shit", "sex", "bastard", "bitch", "asshole", "dick", "pussy", "idiot", "stupid"]
@@ -1037,18 +1108,139 @@ def text_handler(update: Update, context: CallbackContext):
         parse_mode=ParseMode.HTML
     )
 
+# ================= BROADCAST HANDLERS =================
+
+def broadcast_command_handler(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or user.id != ADMIN_ID:
+        if update.message:
+            update.message.reply_text("⛔️ <b>Access Denied:</b> This command is restricted to the bot administrator.", parse_mode=ParseMode.HTML)
+        return
+
+    msg = update.message
+    if not msg:
+        return
+
+    # Check for reply to another message (copy message)
+    reply_to = msg.reply_to_message
+    broadcast_text = ""
+    photo_file_id = None
+    caption_text = None
+    is_reply_copy = False
+
+    if reply_to:
+        is_reply_copy = True
+    elif msg.photo:
+        photo_file_id = msg.photo[-1].file_id
+        raw_caption = msg.caption or ""
+        caption_text = re.sub(r"^/broadcast\s*", "", raw_caption, flags=re.IGNORECASE).strip()
+    else:
+        raw_text = msg.text or ""
+        broadcast_text = re.sub(r"^/broadcast\s*", "", raw_text, flags=re.IGNORECASE).strip()
+
+    if not is_reply_copy and not photo_file_id and not broadcast_text:
+        help_text = (
+            "📢 <b>Broadcast Console (Admin Only)</b>\n\n"
+            "You can broadcast to all users in 3 ways:\n\n"
+            "1️⃣ <b>Text Broadcast:</b>\n"
+            "<code>/broadcast Your message here</code>\n\n"
+            "2️⃣ <b>Photo with Caption:</b>\n"
+            "Send any photo with caption: <code>/broadcast Your caption here</code>\n\n"
+            "3️⃣ <b>Reply Broadcast (Any media):</b>\n"
+            "Reply to any text, photo, audio, or document with <code>/broadcast</code> to replicate it to all users.\n\n"
+            f"👥 <b>Current Registered Users:</b> {len(users_db)}"
+        )
+        msg.reply_text(help_text, parse_mode=ParseMode.HTML)
+        return
+
+    targets = [int(uid) for uid in users_db.keys() if str(uid).isdigit()]
+    if not targets:
+        msg.reply_text("⚠️ <b>No users registered</b> to broadcast to.", parse_mode=ParseMode.HTML)
+        return
+
+    status_msg = msg.reply_text(
+        f"🚀 <b>Broadcast Initiated!</b>\nTargeting <b>{len(targets)}</b> aspirants...\nPlease wait.",
+        parse_mode=ParseMode.HTML
+    )
+
+    sent = 0
+    blocked = 0
+    failed = 0
+
+    for uid in targets:
+        try:
+            if is_reply_copy:
+                context.bot.copy_message(
+                    chat_id=uid,
+                    from_chat_id=reply_to.chat_id,
+                    message_id=reply_to.message_id
+                )
+            elif photo_file_id:
+                context.bot.send_photo(
+                    chat_id=uid,
+                    photo=photo_file_id,
+                    caption=caption_text if caption_text else None,
+                    parse_mode=ParseMode.HTML if caption_text else None
+                )
+            else:
+                context.bot.send_message(
+                    chat_id=uid,
+                    text=broadcast_text,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=False
+                )
+            sent += 1
+            time.sleep(0.04)  # ~25 msgs/sec
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "blocked" in err_msg or "deactivated" in err_msg or "chat not found" in err_msg:
+                blocked += 1
+            else:
+                failed += 1
+            print(f"[Broadcast] Failed to send to {uid}: {e}")
+
+    summary = (
+        f"✅ <b>Broadcast Completed!</b>\n\n"
+        f"👥 <b>Total Targets:</b> {len(targets)}\n"
+        f"📨 <b>Delivered:</b> {sent}\n"
+        f"🚫 <b>Blocked/Deactivated:</b> {blocked}\n"
+        f"⚠️ <b>Failed:</b> {failed}"
+    )
+    msg.reply_text(summary, parse_mode=ParseMode.HTML)
+
+def users_stats_handler(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or user.id != ADMIN_ID:
+        return
+    update.message.reply_text(
+        f"👥 <b>Vyasify Quiz Bot Audience</b>\n\nTotal Registered Users: <b>{len(users_db)}</b>",
+        parse_mode=ParseMode.HTML
+    )
+
+def photo_broadcast_handler(update: Update, context: CallbackContext):
+    msg = update.message
+    if not msg or not msg.photo:
+        return
+    caption = msg.caption or ""
+    if caption.strip().lower().startswith("/broadcast"):
+        broadcast_command_handler(update, context)
+
 # ================= MAIN =================
 
 def main():
     load_leaderboard()
+    load_users()
     
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", welcome_user))
     dp.add_handler(CommandHandler("leaderboard", show_leaderboard))
+    dp.add_handler(CommandHandler("broadcast", broadcast_command_handler))
+    dp.add_handler(CommandHandler("users", users_stats_handler))
     dp.add_handler(CallbackQueryHandler(button_handler))
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
+    dp.add_handler(MessageHandler(Filters.photo, photo_broadcast_handler))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_handler))
 
     print("✅ Vyasify Dynamic Bot is Online...")
