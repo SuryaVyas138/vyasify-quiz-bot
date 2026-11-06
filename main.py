@@ -3,26 +3,49 @@ import csv
 import time
 import json
 import html
+import re
 import requests
 from io import StringIO
 from datetime import datetime, timedelta, timezone
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Poll,
-    ParseMode
-)
-from telegram.ext import (
-    Updater,
-    CommandHandler,
-    CallbackQueryHandler,
-    PollAnswerHandler,
-    MessageHandler,
-    Filters,
-    CallbackContext,
-)
+try:
+    from telegram import (
+        Update,
+        InlineKeyboardButton,
+        InlineKeyboardMarkup,
+        Poll,
+        ParseMode
+    )
+    from telegram.ext import (
+        Updater,
+        CommandHandler,
+        CallbackQueryHandler,
+        PollAnswerHandler,
+        MessageHandler,
+        Filters,
+        CallbackContext,
+    )
+except ImportError:
+    # Compatibility fallback for python-telegram-bot v20+
+    from telegram import (
+        Update,
+        InlineKeyboardButton,
+        InlineKeyboardMarkup,
+        Poll,
+    )
+    from telegram.constants import ParseMode
+    from telegram.ext import (
+        CommandHandler,
+        CallbackQueryHandler,
+        PollAnswerHandler,
+        MessageHandler,
+        filters as Filters,
+        CallbackContext,
+    )
+    try:
+        from telegram.ext import Updater
+    except ImportError:
+        Updater = None
 
 # ================= CONFIGURATION & CONSTANTS =================
 
@@ -225,6 +248,41 @@ def render_template(template_str: str, variables: dict) -> str:
         rendered = rendered.replace(f"{{{k}}}", str(v if v is not None else ""))
     return rendered
 
+def parse_flexible_date(date_str):
+    """
+    Parses dates in any common format: DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY, etc.
+    Strips leading apostrophes and handles single digit days/months.
+    """
+    if not date_str:
+        return None
+    cleaned = str(date_str).strip().lstrip("'").strip()
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%y", "%d/%m/%y", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(cleaned, fmt).date()
+        except ValueError:
+            pass
+    m = re.match(r"^(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})$", cleaned)
+    if m:
+        p1, p2, p3 = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if p1 > 1000:
+            return datetime(p1, p2, p3).date()
+        elif p3 > 1000:
+            return datetime(p3, p2, p1).date()
+    return None
+
+def extract_correct_option_id(correct_str):
+    """
+    Safely extracts option ID (0=A, 1=B, 2=C, 3=D) from various formats:
+    'A', 'Option B', '(C)', 'D.', etc.
+    """
+    if not correct_str:
+        return 0
+    s = str(correct_str).strip().upper()
+    match = re.search(r'[A-D]', s)
+    if match:
+        return ord(match.group(0)) - 65
+    return 0
+
 # ================= DATA MANAGEMENT =================
 
 def load_leaderboard():
@@ -265,99 +323,155 @@ def get_live_leaderboard(date_key):
 def fetch_questions(date_key=None):
     """
     Fetches questions for a specific date (YYYY-MM-DD).
-    Supports multi-tier retrieval: Direct CSV -> Cached CSV -> Apps Script WebApp -> Vyasify API
+    Supports multi-tier retrieval:
+    1. Direct CSV (gid=0 - daily_questions)
+    2. Dynamic Active Month Tab CSV via gviz (e.g. November 2026)
+    3. Cached Published CSV Fallback
+    4. Apps Script Web App Endpoint
+    5. Vyasify Web API Fallback
+    With smart candidate date fallbacks (target_date -> today_date -> latest available date).
     """
     cfg = get_bot_config()
     default_t = int(cfg.get("defaultTimeSeconds", DEFAULT_TIME))
 
-    # Determine target date
+    # Candidate dates to evaluate in order of preference
+    candidate_dates = []
     if date_key:
-        target_date = datetime.strptime(date_key, "%Y-%m-%d").date()
-    else:
-        target_date = datetime.strptime(get_quiz_date_key(), "%Y-%m-%d").date()
-
-    # Tier 1 & 2: Primary Direct Export (instant) & Fallback Published CSV
-    for url in [QUIZ_CSV_URL, FALLBACK_CSV_URL]:
         try:
-            r = requests.get(url, timeout=15)
-            r.raise_for_status()
-            content = r.content.decode("utf-8-sig")
-            rows = list(csv.DictReader(StringIO(content)))
+            candidate_dates.append(datetime.strptime(date_key, "%Y-%m-%d").date())
+        except Exception:
+            pass
 
-            valid_questions = []
-            for row in rows:
-                try:
-                    row = {k.strip(): v for k, v in row.items()}
-                    clean_date = str(row.get("date", "")).strip().lstrip("'")
-                    row_date = datetime.strptime(clean_date, "%d-%m-%Y").date()
+    cycle_date_str = get_quiz_date_key()
+    try:
+        cycle_date = datetime.strptime(cycle_date_str, "%Y-%m-%d").date()
+        if cycle_date not in candidate_dates:
+            candidate_dates.append(cycle_date)
+    except Exception:
+        pass
 
-                    if row_date == target_date:
-                        time_val = str(row.get("time", "")).strip()
-                        if time_val and time_val.isdigit():
-                            row["_time"] = int(time_val)
-                        else:
-                            row["_time"] = default_t
-                        valid_questions.append(row)
-                except Exception:
+    today_ist = now_ist().date()
+    if today_ist not in candidate_dates:
+        candidate_dates.append(today_ist)
+
+    # Primary target for Month tab generation
+    primary_date = candidate_dates[0] if candidate_dates else today_ist
+    month_name = primary_date.strftime("%B %Y")
+    month_gviz_url = f"https://docs.google.com/spreadsheets/d/15JMXTiM1AbI0LAh85R26pBo459vDG-G1i59Vqz6a3wg/gviz/tq?tqx=out:csv&sheet={requests.utils.quote(month_name)}"
+
+    urls_to_try = [
+        QUIZ_CSV_URL,
+        month_gviz_url,
+        FALLBACK_CSV_URL,
+    ]
+
+    # Tier 1, 2, 3: Direct CSVs
+    all_parsed_rows = []
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, timeout=12)
+            if r.status_code != 200:
+                continue
+            content_decoded = r.content.decode("utf-8-sig")
+            csv_rows = list(csv.DictReader(StringIO(content_decoded)))
+            if not csv_rows:
+                continue
+
+            for row in csv_rows:
+                row = {k.strip(): v for k, v in row.items()}
+                d_obj = parse_flexible_date(row.get("date"))
+                if not d_obj:
                     continue
+                time_val = str(row.get("time", "")).strip()
+                if time_val and time_val.isdigit():
+                    row["_time"] = max(5, min(600, int(time_val)))
+                else:
+                    row["_time"] = default_t
+                row["_date_obj"] = d_obj
+                row["option_a"] = row.get("option_a", "").strip() or "Option A"
+                row["option_b"] = row.get("option_b", "").strip() or "Option B"
+                row["option_c"] = row.get("option_c", "").strip() or "Option C"
+                row["option_d"] = row.get("option_d", "").strip() or "Option D"
+                all_parsed_rows.append(row)
 
-            if valid_questions:
-                return valid_questions
+            # Check candidate dates against all_parsed_rows
+            for c_date in candidate_dates:
+                matches = [r for r in all_parsed_rows if r.get("_date_obj") == c_date]
+                if matches:
+                    return matches
         except Exception as e:
             print(f"CSV Fetch Error ({url}): {e}")
 
-    # Tier 3: Google Apps Script Web App Endpoint
-    try:
-        sheet_date = target_date.strftime("%d-%m-%Y")
-        res = requests.get(f"{APPS_SCRIPT_WEBAPP_URL}?date={sheet_date}", timeout=15)
-        if res.status_code == 200:
-            data = res.json()
-            qs = data.get("questions", [])
-            valid_questions = []
-            for q in qs:
-                clean_q = {k.strip(): v for k, v in q.items()}
-                time_val = str(clean_q.get("time", "")).strip()
-                clean_q["_time"] = int(time_val) if time_val.isdigit() else default_t
-                valid_questions.append(clean_q)
-            if valid_questions:
-                return valid_questions
-    except Exception as e:
-        print(f"Apps Script WebApp Fetch Error: {e}")
+    # Tier 4: Google Apps Script Web App Endpoint
+    for c_date in candidate_dates:
+        try:
+            sheet_date = c_date.strftime("%d-%m-%Y")
+            res = requests.get(f"{APPS_SCRIPT_WEBAPP_URL}?date={sheet_date}", timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                qs = data.get("questions", [])
+                valid_questions = []
+                for q in qs:
+                    clean_q = {k.strip(): v for k, v in q.items()}
+                    time_val = str(clean_q.get("time", "")).strip()
+                    clean_q["_time"] = max(5, min(600, int(time_val))) if time_val.isdigit() else default_t
+                    clean_q["option_a"] = clean_q.get("option_a", "").strip() or "Option A"
+                    clean_q["option_b"] = clean_q.get("option_b", "").strip() or "Option B"
+                    clean_q["option_c"] = clean_q.get("option_c", "").strip() or "Option C"
+                    clean_q["option_d"] = clean_q.get("option_d", "").strip() or "Option D"
+                    clean_q["_date_obj"] = c_date
+                    valid_questions.append(clean_q)
+                if valid_questions:
+                    return valid_questions
+        except Exception as e:
+            print(f"Apps Script WebApp Fetch Error: {e}")
 
-    # Tier 4: Direct Vyasify Web API Fallback
-    try:
-        iso_str = target_date.isoformat()
-        api_res = requests.get(f"https://vyasify.in/api/current-affairs/daily-quiz?date={iso_str}", timeout=15)
-        if api_res.status_code == 200:
-            api_data = api_res.json()
-            qs = api_data.get("questions", [])
-            valid_questions = []
-            for q in qs:
-                opts = q.get("options", [])
-                clean_correct = str(q.get("answer", "A")).strip().upper()
-                if len(clean_correct) > 1 and clean_correct[0] in "ABCD":
-                    clean_correct = clean_correct[0]
-                row_fmt = {
-                    "date": target_date.strftime("%d-%m-%Y"),
-                    "topic": "Daily Current Affairs",
-                    "question": q.get("question", ""),
-                    "option_a": opts[0] if len(opts) > 0 else "",
-                    "option_b": opts[1] if len(opts) > 1 else "",
-                    "option_c": opts[2] if len(opts) > 2 else "",
-                    "option_d": opts[3] if len(opts) > 3 else "",
-                    "correct_option": clean_correct,
-                    "explanation": q.get("explanation", ""),
-                    "source": q.get("sourceArticleTitle", "Vyasify Current Affairs"),
-                    "time": default_t,
-                    "_time": default_t,
-                    "marks": cfg.get("correctMark", DEFAULT_CORRECT_MARK),
-                    "negative_ratio": cfg.get("negativeRatio", 0.66)
-                }
-                valid_questions.append(row_fmt)
-            if valid_questions:
-                return valid_questions
-    except Exception as e:
-        print(f"Direct API Fetch Error: {e}")
+    # Tier 5: Direct Vyasify Web API Fallback
+    for c_date in candidate_dates:
+        try:
+            iso_str = c_date.isoformat()
+            api_res = requests.get(f"https://vyasify.in/api/current-affairs/daily-quiz?date={iso_str}", timeout=10)
+            if api_res.status_code == 200:
+                api_data = api_res.json()
+                qs = api_data.get("questions", [])
+                valid_questions = []
+                for q in qs:
+                    opts = q.get("options", [])
+                    clean_correct = str(q.get("answer", "A")).strip().upper()
+                    if len(clean_correct) > 1 and clean_correct[0] in "ABCD":
+                        clean_correct = clean_correct[0]
+                    row_fmt = {
+                        "date": c_date.strftime("%d-%m-%Y"),
+                        "topic": "Daily Current Affairs",
+                        "question": q.get("question", ""),
+                        "option_a": (opts[0] if len(opts) > 0 else "").strip() or "Option A",
+                        "option_b": (opts[1] if len(opts) > 1 else "").strip() or "Option B",
+                        "option_c": (opts[2] if len(opts) > 2 else "").strip() or "Option C",
+                        "option_d": (opts[3] if len(opts) > 3 else "").strip() or "Option D",
+                        "correct_option": clean_correct,
+                        "explanation": q.get("explanation", ""),
+                        "source": q.get("sourceArticleTitle", "Vyasify Current Affairs"),
+                        "time": default_t,
+                        "_time": default_t,
+                        "_date_obj": c_date,
+                        "marks": cfg.get("correctMark", DEFAULT_CORRECT_MARK),
+                        "negative_ratio": cfg.get("negativeRatio", 0.66)
+                    }
+                    valid_questions.append(row_fmt)
+                if valid_questions:
+                    return valid_questions
+        except Exception as e:
+            print(f"Direct API Fetch Error: {e}")
+
+    # Final safety: If all candidate dates had 0 questions, check if ANY date in all_parsed_rows has questions
+    if all_parsed_rows:
+        available_dates = sorted(list(set(r["_date_obj"] for r in all_parsed_rows if "_date_obj" in r)))
+        if available_dates:
+            latest_d = available_dates[-1]
+            latest_matches = [r for r in all_parsed_rows if r.get("_date_obj") == latest_d]
+            if latest_matches:
+                print(f"[fetch_questions] Fallback to latest available date in sheet: {latest_d} ({len(latest_matches)} questions)")
+                return latest_matches
 
     return []
 
@@ -557,6 +671,14 @@ def start_quiz_session(update: Update, context: CallbackContext):
         context.bot.send_message(uid, "❌ <b>No quiz available for the current cycle.</b> \n(Next update at 09:00 AM IST).", parse_mode=ParseMode.HTML)
         return
 
+    # Lock date key to the actual questions date if available
+    if questions and "_date_obj" in questions[0]:
+        current_date_key = questions[0]["_date_obj"].isoformat()
+    elif questions and "date" in questions[0]:
+        actual_d = parse_flexible_date(questions[0]["date"])
+        if actual_d:
+            current_date_key = actual_d.isoformat()
+
     # Cap max questions if configured
     max_q = int(cfg.get("maxQuestions", 10))
     if max_q and len(questions) > max_q:
@@ -625,11 +747,13 @@ def send_question(context: CallbackContext, uid):
     )
 
     options = [
-        truncate(q.get("option_a", "")),
-        truncate(q.get("option_b", "")),
-        truncate(q.get("option_c", "")),
-        truncate(q.get("option_d", ""))
+        truncate(q.get("option_a", "")) or "Option A",
+        truncate(q.get("option_b", "")) or "Option B",
+        truncate(q.get("option_c", "")) or "Option C",
+        truncate(q.get("option_d", "")) or "Option D"
     ]
+    correct_id = extract_correct_option_id(q.get("correct_option"))
+    poll_duration = max(5, min(600, int(q.get("_time", 90))))
     
     try:
         poll = context.bot.send_poll(
@@ -637,8 +761,8 @@ def send_question(context: CallbackContext, uid):
             "Select the correct option:",
             options,
             type=Poll.QUIZ,
-            correct_option_id=ord(q["correct_option"].strip().upper()) - 65,
-            open_period=q["_time"],
+            correct_option_id=correct_id,
+            open_period=poll_duration,
             is_anonymous=False,
         )
 
@@ -708,7 +832,7 @@ def poll_answer_handler(update: Update, context: CallbackContext):
         job.schedule_removal()
 
     q = s["questions"][s["index"]]
-    correct_idx = ord(q["correct_option"].strip().upper()) - 65
+    correct_idx = extract_correct_option_id(q.get("correct_option"))
     selected = answer.option_ids[0]
 
     status_emoji = ""
