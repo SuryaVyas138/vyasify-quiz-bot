@@ -49,6 +49,14 @@ except ImportError:
     except ImportError:
         Updater = None
 
+try:
+    from telegram.error import RetryAfter, TelegramError
+except ImportError:
+    class RetryAfter(Exception):
+        retry_after = 5
+    class TelegramError(Exception):
+        pass
+
 # ================= CONFIGURATION & CONSTANTS =================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -283,6 +291,38 @@ def clean_text(text):
         return ""
     text = normalize_newlines(text)
     return html.escape(text)
+
+def format_question_for_telegram(text):
+    """
+    Formats question statement for Telegram HTML:
+    1. Unescapes all variations of escaped newlines.
+    2. Injects clean double spacing (\n\n) between Statement-I, Statement-II, Statement-III, etc.
+    3. Injects clean double spacing between numbered items (1., 2., 3., 4.).
+    4. Injects clean double spacing before question directives ('Which of the following...', 'How many...').
+    5. Escapes HTML entities safely.
+    """
+    if not text:
+        return ""
+    s = normalize_newlines(text)
+    
+    # Ensure double newline before Statement-I, Statement-II, Statement-III, etc.
+    s = re.sub(r'([^\n])\n+(Statement-[I|V|X]+:)', r'\1\n\n\2', s, flags=re.IGNORECASE)
+    
+    # Ensure double newline before numbered statements: 1., 2., 3., 4.
+    s = re.sub(r'([^\n])\n+([1-9]\.\s+)', r'\1\n\n\2', s)
+    
+    # Ensure double newline before common UPSC concluding prompts:
+    s = re.sub(
+        r'([^\n])\n+((?:Which\s+(?:of\s+the|one\s+of\s+the)|How\s+many|Select\s+the)\s+)',
+        r'\1\n\n\2',
+        s,
+        flags=re.IGNORECASE
+    )
+    
+    # Collapse 3 or more consecutive newlines into max 2
+    s = re.sub(r'\n{3,}', '\n\n', s)
+    
+    return html.escape(s.strip())
 
 def format_time(seconds):
     """Formats seconds into '1m 41s' style."""
@@ -609,6 +649,16 @@ def welcome_user(update: Update, context: CallbackContext):
             parse_mode=ParseMode.HTML,
             reply_markup=start_keyboard()
         )
+        return
+
+    # Check for live leaderboard deep-link: ?start=leaderboard or ?start=lb
+    if context and context.args and len(context.args) > 0 and str(context.args[0]).lower() in ["leaderboard", "lb"]:
+        show_leaderboard(update, context)
+        return
+
+    # Check for direct quiz launch deep-link: ?start=quiz or ?start=test
+    if context and context.args and len(context.args) > 0 and str(context.args[0]).lower() in ["quiz", "test", "start_quiz"]:
+        start_quiz_session(update, context)
         return
 
     cfg = get_bot_config()
@@ -1116,8 +1166,22 @@ def show_leaderboard(update: Update, context: CallbackContext):
     
     ranked = get_live_leaderboard(day_key)[:10]
     
+    target = update.message if update.message else update.callback_query.message if update.callback_query else None
+    uid = update.effective_user.id if update.effective_user else None
+
+    lb_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶ Start Today's Timed Quiz", callback_data="action_start")]
+    ])
+
     if not ranked:
-        update.message.reply_text("📉 No records yet for today's quiz cycle (since 9 AM). Be the first!", parse_mode=ParseMode.HTML)
+        no_rec = (
+            f"📉 <b>No records yet for today's quiz cycle ({day_key}).</b>\n\n"
+            "Be the first aspirant to attempt today's quiz and lead the leaderboard!"
+        )
+        if target:
+            target.reply_text(no_rec, parse_mode=ParseMode.HTML, reply_markup=lb_kb)
+        elif uid:
+            context.bot.send_message(chat_id=uid, text=no_rec, parse_mode=ParseMode.HTML, reply_markup=lb_kb)
         return
 
     lb_title = cfg.get("scorecardLeaderboardTitle", "🏆 <b>Daily Leaderboard (Top 10)</b>")
@@ -1140,7 +1204,12 @@ def show_leaderboard(update: Update, context: CallbackContext):
         })
         text += f"{row_str}\n"
     
-    update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    text += "\n<i>Scores sync live from both @vyasify_quiz_bot and Vyasify Web.</i>"
+    
+    if target:
+        target.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=lb_kb)
+    elif uid:
+        context.bot.send_message(chat_id=uid, text=text, parse_mode=ParseMode.HTML, reply_markup=lb_kb)
 
 def text_handler(update: Update, context: CallbackContext):
     if update.effective_user:
@@ -1431,11 +1500,60 @@ def _make_group_explanation_buttons(date_key, q_index):
     ])
 
 
+def safe_send_message(bot, chat_id, **kwargs):
+    """Sends message with automatic rate-limit backoff and retry."""
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            return bot.send_message(chat_id=chat_id, **kwargs)
+        except RetryAfter as r_err:
+            wait_sec = getattr(r_err, "retry_after", 3) + 1
+            print(f"[safe_send_message] Rate limit hit: sleeping {wait_sec}s (attempt {attempt+1}/{max_retries})...")
+            time.sleep(wait_sec)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "retry after" in err_str or "flood" in err_str:
+                m = re.search(r'retry after (\d+)', err_str)
+                wait_sec = int(m.group(1)) + 1 if m else 5
+                print(f"[safe_send_message] Flood error: sleeping {wait_sec}s...")
+                time.sleep(wait_sec)
+                continue
+            if attempt == max_retries - 1:
+                print(f"[safe_send_message] Failed completely: {e}")
+                raise e
+            time.sleep(1.5)
+    return None
+
+def safe_send_poll(bot, chat_id, **kwargs):
+    """Sends poll with automatic rate-limit backoff and retry."""
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            return bot.send_poll(chat_id=chat_id, **kwargs)
+        except RetryAfter as r_err:
+            wait_sec = getattr(r_err, "retry_after", 3) + 1
+            print(f"[safe_send_poll] Rate limit hit: sleeping {wait_sec}s (attempt {attempt+1}/{max_retries})...")
+            time.sleep(wait_sec)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "retry after" in err_str or "flood" in err_str:
+                m = re.search(r'retry after (\d+)', err_str)
+                wait_sec = int(m.group(1)) + 1 if m else 5
+                print(f"[safe_send_poll] Flood error: sleeping {wait_sec}s...")
+                time.sleep(wait_sec)
+                continue
+            if attempt == max_retries - 1:
+                print(f"[safe_send_poll] Failed completely: {e}")
+                raise e
+            time.sleep(1.5)
+    return None
+
 def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
     """
     Posts all quiz questions to a channel or group chat as open-ended (no timer) quiz polls.
     Handles Telegram channel anonymity requirements automatically (is_anonymous=True).
     Each poll includes explanation buttons and native quiz lightbulb tooltips.
+    Uses safe rate-limit backoff and retries to guarantee Question 10 and footer never drop.
     """
     cfg = get_bot_config()
     max_q = int(cfg.get("maxQuestions", 10))
@@ -1456,19 +1574,36 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
     # In channels, polls MUST be anonymous (is_anonymous=True)
     poll_is_anon = True if is_channel else True
 
-    # Announcement header
+    # Announcement header (crisp UPSC format, no 'attempt anytime', prominent live leaderboard)
     topic = questions[0].get("topic", "Daily Current Affairs") if questions else "Daily Current Affairs"
     header_text = (
-        f"🎯 <b>Vyasify Daily Quiz — {date_key}</b>\n\n"
-        f"📌 <b>Topic:</b> {html.escape(topic)}\n\n"
-        f"📋 <b>{len(questions)} questions</b> • Attempt anytime\n"
-        f"💡 Tap <i>View Full Explanation</i> under each question for detailed UPSC analysis\n"
+        f"🎯 <b>Vyasify Daily UPSC Prelims Quiz — {date_key}</b>\n\n"
+        f"📌 <b>Topic:</b> {html.escape(topic)}\n"
+        f"📋 <b>Total:</b> {len(questions)} High-Yield UPSC Questions\n\n"
+        f"🏆 <b>Unified Live Leaderboard:</b>\n"
+        f"Attempt the timed test on @vyasify_quiz_bot or Vyasify Web to benchmark your score live against fellow aspirants!\n\n"
+        f"💡 <i>Tap <b>View Full Explanation</b> under each question for detailed UPSC analysis & syllabus linkages.</i>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
+    header_markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🏆 View Live Leaderboard", url="https://t.me/vyasify_quiz_bot?start=leaderboard"),
+            InlineKeyboardButton("⚡️ Take Timed Test", url="https://t.me/vyasify_quiz_bot?start=quiz")
+        ]
+    ])
     try:
-        bot.send_message(chat_id=chat_id, text=header_text, parse_mode=ParseMode.HTML)
+        safe_send_message(
+            bot=bot,
+            chat_id=chat_id,
+            text=header_text,
+            reply_markup=header_markup,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
+        )
     except Exception as e:
         print(f"[GroupQuiz] Header post failed: {e}")
+
+    time.sleep(1.0)
 
     for idx, q in enumerate(questions):
         options = [
@@ -1501,19 +1636,19 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         if correct_id < 0 or correct_id >= len(clean_options):
             correct_id = 0
 
-        clean_q = normalize_newlines(q.get('question', ''))
-
         # Post full Question Statement as formatted HTML message
-        # This completely solves character limit truncation and renders all statements & line breaks perfectly!
-        question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{html.escape(clean_q)}"
+        # Uses format_question_for_telegram to ensure clean double line breaks between statements
+        clean_q_formatted = format_question_for_telegram(q.get('question', ''))
+        question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{clean_q_formatted}"
         try:
-            bot.send_message(
+            safe_send_message(
+                bot=bot,
                 chat_id=chat_id,
                 text=question_post_text,
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True
             )
-            time.sleep(0.3)
+            time.sleep(0.8)
         except Exception as q_err:
             print(f"[GroupQuiz] Question statement post error ({idx+1}): {q_err}")
 
@@ -1523,7 +1658,8 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         poll_msg = None
         # Attempt 1: send with explanation buttons and anonymous mode
         try:
-            poll_msg = bot.send_poll(
+            poll_msg = safe_send_poll(
+                bot=bot,
                 chat_id=chat_id,
                 question=poll_question,
                 options=clean_options,
@@ -1535,9 +1671,10 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 reply_markup=_make_group_explanation_buttons(date_key, idx)
             )
         except Exception as err1:
-            print(f"[GroupQuiz] send_poll attempt 1 error for Q{idx+1}: {err1}. Retrying with is_anonymous=True...")
+            print(f"[GroupQuiz] send_poll attempt 1 error for Q{idx+1}: {err1}. Retrying without markup...")
             try:
-                poll_msg = bot.send_poll(
+                poll_msg = safe_send_poll(
+                    bot=bot,
                     chat_id=chat_id,
                     question=poll_question,
                     options=clean_options,
@@ -1545,36 +1682,11 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                     correct_option_id=correct_id,
                     explanation=short_exp if short_exp else None,
                     explanation_parse_mode=None,
-                    is_anonymous=True,
-                    reply_markup=_make_group_explanation_buttons(date_key, idx)
+                    is_anonymous=True
                 )
-            except Exception as err2:
-                print(f"[GroupQuiz] send_poll attempt 2 error for Q{idx+1}: {err2}. Retrying without markup...")
-                try:
-                    poll_msg = bot.send_poll(
-                        chat_id=chat_id,
-                        question=poll_question,
-                        options=clean_options,
-                        type=Poll.QUIZ,
-                        correct_option_id=correct_id,
-                        explanation=short_exp if short_exp else None,
-                        explanation_parse_mode=None,
-                        is_anonymous=True
-                    )
-                except Exception as direct_err:
-                    print(f"[GroupQuiz] Fatal: send_poll failed completely for Q{idx+1}: {direct_err}")
-                    try:
-                        bot.send_message(
-                            chat_id=chat_id,
-                            text=(
-                                f"⚠️ <b>Poll Error for Q{idx+1}:</b> {html.escape(str(direct_err))}\n\n"
-                                "Please ensure @vyasify_quiz_bot is an <b>Administrator</b> in this channel with permission to post messages and polls."
-                            ),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception:
-                        pass
-                    continue
+            except Exception as direct_err:
+                print(f"[GroupQuiz] Fatal: send_poll failed completely for Q{idx+1}: {direct_err}")
+                continue
 
         if poll_msg and poll_msg.poll:
             group_poll_registry[poll_msg.poll.id] = {
@@ -1582,21 +1694,34 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 "q_index": idx,
                 "q": q,
             }
-        time.sleep(0.8)
+        time.sleep(1.8)
 
-    # Footer
+    # Footer with unified leaderboard and full editorial links
     footer_text = (
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✅ All {len(questions)} questions posted!\n"
-        f"📖 <a href='https://vyasify.in/current-affairs'>Read Today's Full Editorial on Vyasify</a>\n"
-        f"💬 Tap <b>Leave a comment</b> below to discuss your answers!"
+        f"✅ <b>All {len(questions)} Daily Questions Posted!</b>\n\n"
+        f"🏆 <b>Leaderboard Active:</b>\n"
+        f"All attempts on @vyasify_quiz_bot and Vyasify Web sync to today's unified leaderboard.\n\n"
+        f"📖 <a href='https://vyasify.in/current-affairs'>Read Today's Complete Editorial on Vyasify</a>\n\n"
+        f"💬 Tap <b>Leave a comment</b> below to discuss key takeaways and doubts!"
     )
+    footer_markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🏆 Live Leaderboard", url="https://t.me/vyasify_quiz_bot?start=leaderboard"),
+            InlineKeyboardButton("⚡️ Take Timed Test", url="https://t.me/vyasify_quiz_bot?start=quiz")
+        ],
+        [
+            InlineKeyboardButton("📖 Read Editorial on Vyasify", url="https://vyasify.in/current-affairs")
+        ]
+    ])
     try:
-        bot.send_message(
+        safe_send_message(
+            bot=bot,
             chat_id=chat_id,
             text=footer_text,
+            reply_markup=footer_markup,
             parse_mode=ParseMode.HTML,
-            disable_web_page_preview=False
+            disable_web_page_preview=True
         )
     except Exception as e:
         print(f"[GroupQuiz] Footer post failed: {e}")
