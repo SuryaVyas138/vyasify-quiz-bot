@@ -1801,6 +1801,16 @@ def channel_post_handler(update: Update, context: CallbackContext):
 
         post_group_quiz(context.bot, chat_id, questions, date_key)
 
+    elif first_word in ("/halloffame", "/halloffame@vyasify_quiz_bot", "/hof", "/hof@vyasify_quiz_bot"):
+        chat_id = post.chat.id
+        save_channel_target(chat_id)
+        try:
+            post.delete()
+        except Exception as del_err:
+            print(f"[ChannelHallOfFame] Note: could not delete trigger post: {del_err}")
+        date_key = get_quiz_date_key()
+        post_evening_hall_of_fame(context.bot, chat_id, date_key)
+
 def quiz_command_handler(update: Update, context: CallbackContext):
     """
     /quiz — Posts today's quiz questions to the group.
@@ -1939,6 +1949,120 @@ def auto_post_group_quiz(context: CallbackContext):
 
     print(f"[AutoQuiz] Auto-posting quiz for {date_key} to group {group_chat_id}...")
     post_group_quiz(context.bot, group_chat_id, questions, date_key)
+
+
+def post_evening_hall_of_fame(bot, chat_id, date_key=None):
+    """
+    Posts the Option B Top 10 Hall of Fame Leaderboard to the channel at 9:00 PM IST.
+    """
+    if not date_key:
+        date_key = get_quiz_date_key()
+
+    try:
+        dt = datetime.strptime(date_key, "%Y-%m-%d")
+        date_display = dt.strftime("%d %b %Y")
+    except Exception:
+        date_display = date_key
+
+    questions = fetch_questions(date_key)
+    topic = questions[0].get("topic", "Daily Current Affairs") if questions else "Daily Current Affairs"
+
+    ranked = get_live_leaderboard(date_key)[:10]
+
+    header = f"🏆 <b>Today's Top Performers — {date_display}</b>\n📌 <b>Topic:</b> {html.escape(topic)}\n\n"
+
+    if not ranked:
+        body = (
+            "📉 <i>No official attempts submitted yet today.</i>\n\n"
+            "Be the first aspirant to attempt today's timed quiz and lead the leaderboard!"
+        )
+    else:
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        lines = []
+        for i, r in enumerate(ranked, 1):
+            r_time = format_time(r.get("time", 0))
+            score = r.get("score", 0)
+            platform = r.get("platform", "telegram")
+            platform_badge = "🌐 Web" if platform == "web" else "📱 Bot"
+            name = clean_text(r.get("name", "Aspirant"))
+            if i in medals:
+                lines.append(f"{i}. {medals[i]} <b>{name}</b> ({platform_badge}) — {score} / 20 ({r_time})")
+            else:
+                lines.append(f"{i}. <b>{name}</b> ({platform_badge}) — {score} / 20 ({r_time})")
+        body = "\n".join(lines)
+        body += "\n\n💡 <i>Rankings are calculated based on Highest Score and Fastest Completion Time.</i>"
+
+    footer = "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    full_text = header + body + footer
+
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⚡️ Take Today's Timed Quiz", url="https://t.me/vyasify_quiz_bot?start=quiz"),
+            InlineKeyboardButton("📖 Read Today's Editorial", url="https://vyasify.in/current-affairs")
+        ]
+    ])
+
+    try:
+        safe_send_message(
+            bot=bot,
+            chat_id=chat_id,
+            text=full_text,
+            reply_markup=markup,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+        print(f"[HallOfFame] Posted Option B Hall of Fame for {date_key} to {chat_id}")
+    except Exception as e:
+        print(f"[HallOfFame] Post failed: {e}")
+
+
+def auto_post_evening_hall_of_fame(context: CallbackContext):
+    """
+    Daily scheduled job: posts Option B Hall of Fame to channel at 9:00 PM IST (21:00 IST).
+    """
+    target = get_saved_channel_id()
+    if not target:
+        cfg = get_bot_config()
+        target = str(cfg.get("groupChatId", "")).strip()
+
+    if not target or target in ("", "0"):
+        print("[AutoHallOfFame] No channel target configured. Skipping.")
+        return
+
+    try:
+        group_chat_id = int(target)
+    except ValueError:
+        group_chat_id = target
+
+    date_key = get_quiz_date_key()
+    print(f"[AutoHallOfFame] Triggering 9:00 PM Hall of Fame for {date_key} to {group_chat_id}...")
+    post_evening_hall_of_fame(context.bot, group_chat_id, date_key)
+
+
+def hall_of_fame_command_handler(update: Update, context: CallbackContext):
+    """Admin command to manually trigger or test the 9:00 PM Hall of Fame broadcast."""
+    user = update.effective_user
+    if not user or user.id != ADMIN_ID:
+        if update.message:
+            update.message.reply_text("⛔️ <b>Access Denied:</b> This command is restricted to the bot administrator.", parse_mode=ParseMode.HTML)
+        return
+
+    target = None
+    if context.args and len(context.args) > 0:
+        target = context.args[0].strip()
+    else:
+        target = get_saved_channel_id()
+
+    if not target:
+        if update.message:
+            update.message.reply_text("❌ No target channel found. Use: <code>/halloffame @channel_username</code>", parse_mode=ParseMode.HTML)
+        return
+
+    if update.message:
+        update.message.reply_text(f"🚀 Posting <b>Option B Hall of Fame</b> to {target}...", parse_mode=ParseMode.HTML)
+    post_evening_hall_of_fame(context.bot, target)
+    if update.message:
+        update.message.reply_text("✅ Hall of Fame post sent successfully!", parse_mode=ParseMode.HTML)
 
 
 # ================= GROUP EXPLANATION DM HANDLER =================
@@ -2085,6 +2209,7 @@ def main():
 
     dp.add_handler(CommandHandler("start", welcome_user))
     dp.add_handler(CommandHandler("leaderboard", show_leaderboard))
+    dp.add_handler(CommandHandler(["halloffame", "hof"], hall_of_fame_command_handler))
     dp.add_handler(CommandHandler("broadcast", broadcast_command_handler))
     dp.add_handler(CommandHandler("users", users_stats_handler))
     dp.add_handler(CommandHandler("quiz", quiz_command_handler))
@@ -2152,8 +2277,25 @@ def main():
         job.schedule_removal()
     jq.run_once(first_run_quiz, delay_seconds, name="auto_quiz")
 
+    # ── Schedule Hall of Fame auto-post at 21:00 IST (15:30 UTC) daily ──
+    target_hof_ist = now_ist_dt.replace(hour=21, minute=0, second=0, microsecond=0)
+    if now_ist_dt >= target_hof_ist:
+        target_hof_ist += timedelta(days=1)
+    delay_hof_seconds = (target_hof_ist - now_ist_dt).total_seconds()
+
+    def schedule_daily_hof(context_inner: CallbackContext):
+        auto_post_evening_hall_of_fame(context_inner)
+        context_inner.job_queue.run_once(schedule_daily_hof, 86400, name="auto_hof_daily")
+
+    def first_run_hof(context_inner: CallbackContext):
+        auto_post_evening_hall_of_fame(context_inner)
+        context_inner.job_queue.run_once(schedule_daily_hof, 86400, name="auto_hof_daily")
+
+    jq.run_once(first_run_hof, delay_hof_seconds, name="auto_hof")
+
     print(f"✅ Vyasify Dynamic Bot is Online...")
     print(f"📅 Group auto-quiz scheduled: first fire in {int(delay_seconds/60)}m {int(delay_seconds%60)}s")
+    print(f"🏆 Evening Hall of Fame scheduled: first fire in {int(delay_hof_seconds/60)}m {int(delay_hof_seconds%60)}s")
     updater.start_polling()
     updater.idle()
 
