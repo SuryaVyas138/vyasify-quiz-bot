@@ -568,7 +568,13 @@ def back_home_keyboard():
 # ================= HANDLERS =================
 
 def welcome_user(update: Update, context: CallbackContext):
-    """Sends the customizable Welcome Message with instant config reflection."""
+    """Sends the customizable Welcome Message with instant config reflection.
+    Also handles deep-links: ?start=exp_{date}_{q_index} to serve group explanations."""
+    # Check for group explanation deep-link: ?start=exp_{date}_{q_index}
+    if context and context.args and len(context.args) > 0 and str(context.args[0]).startswith("exp_"):
+        serve_group_explanation_dm(update, context)
+        return
+
     cfg = get_bot_config()
     user = update.effective_user
     if user:
@@ -1225,25 +1231,432 @@ def photo_broadcast_handler(update: Update, context: CallbackContext):
     if caption.strip().lower().startswith("/broadcast"):
         broadcast_command_handler(update, context)
 
+# ================= GROUP QUIZ ENGINE =================
+# Persistent tracking: which dates have already been posted to group
+GROUP_QUIZ_POSTED_FILE = "group_quiz_posted.json"
+group_quiz_posted = {}  # {date_key: True}
+
+# Maps group poll_id -> question metadata for group explanation links
+# { poll_id: { "date_key": str, "q_index": int, "q": dict } }
+group_poll_registry = {}
+
+def load_group_quiz_posted():
+    global group_quiz_posted
+    if os.path.exists(GROUP_QUIZ_POSTED_FILE):
+        try:
+            with open(GROUP_QUIZ_POSTED_FILE, "r", encoding="utf-8") as f:
+                group_quiz_posted = json.load(f)
+        except Exception:
+            group_quiz_posted = {}
+
+def save_group_quiz_posted():
+    try:
+        with open(GROUP_QUIZ_POSTED_FILE, "w", encoding="utf-8") as f:
+            json.dump(group_quiz_posted, f, indent=2)
+    except Exception as e:
+        print(f"[GroupQuiz] Error saving posted log: {e}")
+
+
+def is_group_admin(bot, chat_id, user_id):
+    """Returns True if user_id is a Telegram group admin/creator OR the bot admin."""
+    if user_id == ADMIN_ID:
+        return True
+    try:
+        member = bot.get_chat_member(chat_id, user_id)
+        return member.status in ("creator", "administrator")
+    except Exception:
+        return False
+
+
+def _make_group_explanation_buttons(date_key, q_index):
+    """
+    Creates inline keyboard for group quiz questions:
+    - Button 1: Deep-link into bot DM for full explanation
+    - Button 2: Link to Vyasify current-affairs page
+    """
+    bot_username = "vyasify_quiz_bot"
+    # Encode date + q_index into start param so bot DM can serve exact explanation
+    start_param = f"exp_{date_key}_{q_index}".replace("-", "_")
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "💡 View Full Explanation (DM)",
+                url=f"https://t.me/{bot_username}?start={start_param}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📖 Read Today's Editorial on Vyasify",
+                url="https://vyasify.in/current-affairs"
+            )
+        ]
+    ])
+
+
+def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
+    """
+    Posts all quiz questions to a group chat as open-ended (no timer) quiz polls.
+    Each poll has inline buttons for explanation access.
+    Records which polls belong to group (for partial answer tracking).
+    """
+    cfg = get_bot_config()
+    max_q = int(cfg.get("maxQuestions", 10))
+    if len(questions) > max_q:
+        questions = questions[:max_q]
+
+    # Announcement header
+    topic = questions[0].get("topic", "Daily Current Affairs") if questions else "Daily Current Affairs"
+    header_text = (
+        f"🎯 <b>Vyasify Daily Quiz — {date_key}</b>\n\n"
+        f"📌 <b>Topic:</b> {html.escape(topic)}\n\n"
+        f"📝 <b>{len(questions)} questions</b> • Answer at any time • No timer\n"
+        f"💡 Tap <i>View Full Explanation</i> after each question for detailed UPSC analysis\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
+    try:
+        bot.send_message(chat_id=chat_id, text=header_text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        print(f"[GroupQuiz] Header post failed: {e}")
+
+    for idx, q in enumerate(questions):
+        options = [
+            truncate(q.get("option_a", ""), 100) or "Option A",
+            truncate(q.get("option_b", ""), 100) or "Option B",
+            truncate(q.get("option_c", ""), 100) or "Option C",
+            truncate(q.get("option_d", ""), 100) or "Option D",
+        ]
+        correct_id = extract_correct_option_id(q.get("correct_option"))
+
+        # Telegram quiz explanation limit: 200 chars — use as short hook only
+        raw_exp = q.get("explanation", "") or ""
+        # Build a short tooltip (≤200 chars) pointing to Vyasify for full details
+        short_exp = raw_exp[:160].strip()
+        if len(raw_exp) > 160:
+            short_exp += "... Visit vyasify.in/current-affairs for full analysis."
+        else:
+            short_exp = (short_exp + " | For detailed UPSC notes visit vyasify.in/current-affairs").strip()
+        short_exp = short_exp[:200]  # Hard cap
+
+        question_text = f"Q{idx+1}. {q.get('question', '')}"
+
+        try:
+            poll_msg = bot.send_poll(
+                chat_id=chat_id,
+                question=question_text[:300],  # Telegram poll question limit
+                options=options,
+                type=Poll.QUIZ,
+                correct_option_id=correct_id,
+                explanation=short_exp if short_exp else None,
+                explanation_parse_mode=None,  # Plain text for safety
+                is_anonymous=False,
+                # No open_period = no timer, students can answer anytime
+                reply_markup=_make_group_explanation_buttons(date_key, idx)
+            )
+            # Register this group poll for later DM explanation serving
+            group_poll_registry[poll_msg.poll.id] = {
+                "date_key": date_key,
+                "q_index": idx,
+                "q": q,
+            }
+            time.sleep(0.8)  # Slight delay between questions to avoid flood limits
+        except Exception as e:
+            print(f"[GroupQuiz] Failed to post Q{idx+1}: {e}")
+            time.sleep(1)
+
+    # Footer
+    footer_text = (
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"✅ All {len(questions)} questions posted!\n"
+        f"📖 <a href='https://vyasify.in/current-affairs'>Read Today's Full Editorial on Vyasify</a>\n"
+        f"💬 Discuss your answers below ⬇️"
+    )
+    try:
+        bot.send_message(
+            chat_id=chat_id,
+            text=footer_text,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=False
+        )
+    except Exception as e:
+        print(f"[GroupQuiz] Footer post failed: {e}")
+
+    # Mark date as posted so auto-scheduler doesn't duplicate
+    group_quiz_posted[date_key] = True
+    save_group_quiz_posted()
+    print(f"[GroupQuiz] Posted {len(questions)} questions to group {chat_id} for date {date_key}")
+
+
+def quiz_command_handler(update: Update, context: CallbackContext):
+    """
+    /quiz — Posts today's quiz questions to the group.
+    Restricted to group admins and bot admin only.
+    Can be used in group chats only.
+    """
+    msg = update.message
+    if not msg:
+        return
+
+    chat = update.effective_chat
+    user = update.effective_user
+
+    # Only works in group / supergroup
+    if chat.type not in ("group", "supergroup"):
+        msg.reply_text("⚠️ The /quiz command can only be used in a group chat.", parse_mode=ParseMode.HTML)
+        return
+
+    # Admin-only gate
+    if not is_group_admin(context.bot, chat.id, user.id):
+        try:
+            msg.reply_text("🔒 Only group admins can run the daily quiz.", parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+        return
+
+    date_key = get_quiz_date_key()
+
+    # Fetch questions
+    questions = fetch_questions(date_key)
+    if not questions:
+        msg.reply_text(
+            "❌ <b>No quiz questions found for today's cycle.</b>\nQuestions are updated at 09:00 AM IST.",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    # Warn if already posted today (but allow force-repost by admin)
+    if group_quiz_posted.get(date_key):
+        try:
+            warning = msg.reply_text(
+                f"⚠️ Today's quiz ({date_key}) was already posted to this group.\n"
+                "Posting again in 3 seconds...",
+                parse_mode=ParseMode.HTML
+            )
+            time.sleep(3)
+            warning.delete()
+        except Exception:
+            pass
+
+    # Confirm and start posting
+    try:
+        confirm = msg.reply_text(
+            f"📡 <b>Posting today's quiz ({date_key})...</b>",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        confirm = None
+
+    post_group_quiz(context.bot, chat.id, questions, date_key)
+
+    try:
+        if confirm:
+            confirm.delete()
+    except Exception:
+        pass
+
+
+def auto_post_group_quiz(context: CallbackContext):
+    """
+    Daily job: auto-posts quiz to group at 5:00 PM IST if not already manually posted.
+    GROUP_CHAT_ID must be set via GROUP_CHAT_ID env var or config.
+    """
+    group_chat_id_str = os.environ.get("GROUP_CHAT_ID", "")
+    if not group_chat_id_str:
+        cfg = get_bot_config()
+        group_chat_id_str = str(cfg.get("groupChatId", ""))
+
+    if not group_chat_id_str or group_chat_id_str in ("", "0"):
+        print("[AutoQuiz] GROUP_CHAT_ID not configured. Skipping auto-post.")
+        return
+
+    try:
+        group_chat_id = int(group_chat_id_str)
+    except ValueError:
+        print(f"[AutoQuiz] Invalid GROUP_CHAT_ID: {group_chat_id_str}")
+        return
+
+    date_key = get_quiz_date_key()
+
+    # Skip if already posted manually today
+    if group_quiz_posted.get(date_key):
+        print(f"[AutoQuiz] Quiz for {date_key} already posted. Skipping auto-post.")
+        return
+
+    questions = fetch_questions(date_key)
+    if not questions:
+        print(f"[AutoQuiz] No questions available for {date_key}. Skipping.")
+        return
+
+    print(f"[AutoQuiz] Auto-posting quiz for {date_key} to group {group_chat_id}...")
+    post_group_quiz(context.bot, group_chat_id, questions, date_key)
+
+
+# ================= GROUP EXPLANATION DM HANDLER =================
+
+def serve_group_explanation_dm(update: Update, context: CallbackContext):
+    """
+    Called when a user opens the bot from t.me/vyasify_quiz_bot?start=exp_{date}_{q_index}
+    Delivers the full UPSC-style explanation in a private DM.
+
+    Key design: This is ALWAYS available — even if the student only answered Q3 and not Q7.
+    The explanation is served from the global group_poll_registry which stores ALL posted
+    group questions, regardless of whether the student answered them or not.
+    """
+    user = update.effective_user
+    if user:
+        record_user(user)
+
+    args = context.args  # e.g. ["exp_2026_11_17_2"]
+    if not args or not args[0].startswith("exp_"):
+        # Regular /start — route to normal welcome
+        welcome_user(update, context)
+        return
+
+    param = args[0]  # exp_2026_11_17_2
+    # Parse: exp_{YYYY}_{MM}_{DD}_{q_index}
+    # Stored as exp_YYYY_MM_DD_N where date dashes became underscores
+    parts = param.split("_")
+    # parts = ['exp', 'YYYY', 'MM', 'DD', 'N']  (5 parts if date was YYYY-MM-DD)
+    if len(parts) < 5:
+        welcome_user(update, context)
+        return
+
+    try:
+        q_index = int(parts[-1])
+        date_key = f"{parts[1]}-{parts[2]}-{parts[3]}"  # Reconstruct YYYY-MM-DD
+    except (ValueError, IndexError):
+        welcome_user(update, context)
+        return
+
+    # Look up the question from live registry first (fastest)
+    q_data = None
+    for pid, entry in group_poll_registry.items():
+        if entry["date_key"] == date_key and entry["q_index"] == q_index:
+            q_data = entry["q"]
+            break
+
+    # Fallback: re-fetch from sheet if registry was cleared (e.g. after bot restart)
+    if not q_data:
+        questions = fetch_questions(date_key)
+        if questions and q_index < len(questions):
+            q_data = questions[q_index]
+
+    if not q_data:
+        context.bot.send_message(
+            chat_id=user.id,
+            text=(
+                "⚠️ <b>Explanation not found</b> for this question.\n\n"
+                "📖 <a href='https://vyasify.in/current-affairs'>Visit Vyasify Daily Current Affairs</a> "
+                "for the full editorial and UPSC analysis."
+            ),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=False
+        )
+        return
+
+    # Build the full explanation message
+    opts = ["A", "B", "C", "D"]
+    correct_idx = extract_correct_option_id(q_data.get("correct_option"))
+    correct_letter = opts[correct_idx] if 0 <= correct_idx <= 3 else "A"
+    correct_text = q_data.get(f"option_{correct_letter.lower()}", "")
+
+    raw_explanation = q_data.get("explanation", "") or ""
+    if not raw_explanation.strip():
+        raw_explanation = "For the detailed explanation and contextual notes, visit Vyasify Daily Current Affairs."
+
+    exp_msg = (
+        f"📘 <b>Q{q_index + 1}. {clean_text(q_data.get('question', ''))}</b>\n\n"
+        f"✅ <b>Correct Answer:</b> ({correct_letter}) {clean_text(correct_text)}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📖 <b>Explanation:</b>\n{clean_text(raw_explanation)}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔗 <b>For more in-depth editorial notes, Prelims PYQ analysis, and GS mapping:</b>\n"
+        f"<a href='https://vyasify.in/current-affairs'>📰 vyasify.in/current-affairs</a>"
+    )
+
+    # Chunk if too long (Telegram 4096 char limit per message)
+    if len(exp_msg) <= 4096:
+        context.bot.send_message(
+            chat_id=user.id,
+            text=exp_msg,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=False
+        )
+    else:
+        # Split at the divider
+        chunks = [exp_msg[i:i+4000] for i in range(0, len(exp_msg), 4000)]
+        for chunk in chunks:
+            context.bot.send_message(
+                chat_id=user.id,
+                text=chunk,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=False
+            )
+            time.sleep(0.3)
+
+    # Offer full quiz invite after explanation
+    context.bot.send_message(
+        chat_id=user.id,
+        text=(
+            "🎯 <b>Want to attempt today's full quiz privately with scoring?</b>\n"
+            "Tap /start to begin the bot quiz with marks, leaderboard, and scorecard!"
+        ),
+        parse_mode=ParseMode.HTML
+    )
+
+
 # ================= MAIN =================
 
 def main():
     load_leaderboard()
     load_users()
-    
+    load_group_quiz_posted()
+
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
+    jq = updater.job_queue
 
     dp.add_handler(CommandHandler("start", welcome_user))
     dp.add_handler(CommandHandler("leaderboard", show_leaderboard))
     dp.add_handler(CommandHandler("broadcast", broadcast_command_handler))
     dp.add_handler(CommandHandler("users", users_stats_handler))
+    dp.add_handler(CommandHandler("quiz", quiz_command_handler))
     dp.add_handler(CallbackQueryHandler(button_handler))
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
     dp.add_handler(MessageHandler(Filters.photo, photo_broadcast_handler))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_handler))
 
-    print("✅ Vyasify Dynamic Bot is Online...")
+    # ── Schedule auto-post at 17:00 IST (11:30 UTC) daily ──
+    # IST = UTC+5:30, so 17:00 IST = 11:30 UTC
+    IST_OFFSET = timedelta(hours=5, minutes=30)
+    now_ist_dt = datetime.utcnow() + IST_OFFSET
+    target_ist = now_ist_dt.replace(hour=17, minute=0, second=0, microsecond=0)
+    if now_ist_dt >= target_ist:
+        # Already past 5PM today, schedule for tomorrow
+        target_ist += timedelta(days=1)
+    delay_seconds = (target_ist - now_ist_dt).total_seconds()
+
+    jq.run_once(auto_post_group_quiz, delay_seconds, name="auto_quiz_first_run")
+
+    # After first fire, schedule recurring daily at 11:30 UTC (5PM IST)
+    # We use run_repeating with 86400s (24h) starting from that first fire point
+    # run_once callback re-schedules itself via run_repeating
+    def schedule_daily_quiz(context_inner: CallbackContext):
+        auto_post_group_quiz(context_inner)
+        # Re-arm for next day
+        context_inner.job_queue.run_once(schedule_daily_quiz, 86400, name="auto_quiz_daily")
+
+    # Patch first run to also re-arm
+    def first_run_quiz(context_inner: CallbackContext):
+        auto_post_group_quiz(context_inner)
+        context_inner.job_queue.run_once(schedule_daily_quiz, 86400, name="auto_quiz_daily")
+
+    # Cancel the plain first_run job, replace with re-arming one
+    for job in jq.get_jobs_by_name("auto_quiz_first_run"):
+        job.schedule_removal()
+    jq.run_once(first_run_quiz, delay_seconds, name="auto_quiz")
+
+    print(f"✅ Vyasify Dynamic Bot is Online...")
+    print(f"📅 Group auto-quiz scheduled: first fire in {int(delay_seconds/60)}m {int(delay_seconds%60)}s")
     updater.start_polling()
     updater.idle()
 
