@@ -1354,6 +1354,33 @@ def save_group_quiz_posted():
         print(f"[GroupQuiz] Error saving posted log: {e}")
 
 
+CHANNEL_TARGET_FILE = "channel_target.json"
+
+def get_saved_channel_id():
+    """Returns saved channel target ID or @username from file or environment."""
+    env_target = os.environ.get("GROUP_CHAT_ID")
+    if env_target and env_target.strip():
+        return env_target.strip()
+    if os.path.exists(CHANNEL_TARGET_FILE):
+        try:
+            with open(CHANNEL_TARGET_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                val = data.get("channel_id")
+                if val:
+                    return str(val).strip()
+        except Exception:
+            pass
+    return None
+
+def save_channel_target(channel_id):
+    """Persists channel ID or username so bot knows where to post quizzes automatically."""
+    try:
+        with open(CHANNEL_TARGET_FILE, "w", encoding="utf-8") as f:
+            json.dump({"channel_id": str(channel_id).strip(), "updated_at": datetime.now(timezone.utc).isoformat()}, f, indent=2)
+        print(f"[ChannelTarget] Saved active target channel: {channel_id}")
+    except Exception as e:
+        print(f"[ChannelTarget] Save error: {e}")
+
 def is_group_admin(bot, chat_id, user_id, sender_chat_id=None):
     """Returns True if user_id is a Telegram group admin/creator, anonymous channel admin, OR bot admin."""
     if user_id == ADMIN_ID:
@@ -1393,22 +1420,36 @@ def _make_group_explanation_buttons(date_key, q_index):
 
 def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
     """
-    Posts all quiz questions to a group chat as open-ended (no timer) quiz polls.
-    Each poll has inline buttons for explanation access.
-    Records which polls belong to group (for partial answer tracking).
+    Posts all quiz questions to a channel or group chat as open-ended (no timer) quiz polls.
+    Handles Telegram channel anonymity requirements automatically (is_anonymous=True).
+    Each poll includes explanation buttons and native quiz lightbulb tooltips.
     """
     cfg = get_bot_config()
     max_q = int(cfg.get("maxQuestions", 10))
     if len(questions) > max_q:
         questions = questions[:max_q]
 
+    # Check if target is a channel (channels STRICTLY require is_anonymous=True)
+    is_channel = False
+    try:
+        target_info = bot.get_chat(chat_id)
+        if target_info and target_info.type == "channel":
+            is_channel = True
+    except Exception as c_err:
+        print(f"[post_group_quiz] Chat info lookup: {c_err}")
+        if isinstance(chat_id, str) and chat_id.startswith("@"):
+            is_channel = True
+
+    # In channels, polls MUST be anonymous (is_anonymous=True)
+    poll_is_anon = True if is_channel else True
+
     # Announcement header
     topic = questions[0].get("topic", "Daily Current Affairs") if questions else "Daily Current Affairs"
     header_text = (
         f"🎯 <b>Vyasify Daily Quiz — {date_key}</b>\n\n"
         f"📌 <b>Topic:</b> {html.escape(topic)}\n\n"
-        f"📝 <b>{len(questions)} questions</b> • Answer at any time • No timer\n"
-        f"💡 Tap <i>View Full Explanation</i> after each question for detailed UPSC analysis\n"
+        f"📋 <b>{len(questions)} questions</b> • Attempt anytime\n"
+        f"💡 Tap <i>View Full Explanation</i> under each question for detailed UPSC analysis\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     try:
@@ -1427,7 +1468,6 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
 
         # Telegram quiz explanation limit: 200 chars — use as short hook only
         raw_exp = q.get("explanation", "") or ""
-        # Build a short tooltip (≤200 chars) pointing to Vyasify for full details
         short_exp = raw_exp[:160].strip()
         if len(raw_exp) > 160:
             short_exp += "... Visit vyasify.in/current-affairs for full analysis."
@@ -1453,7 +1493,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
             question_text = question_text[:297] + "..."
 
         poll_msg = None
-        # Primary attempt: send with explanation buttons
+        # Attempt 1: send with explanation buttons and anonymous mode
         try:
             poll_msg = bot.send_poll(
                 chat_id=chat_id,
@@ -1463,11 +1503,11 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 correct_option_id=correct_id,
                 explanation=short_exp if short_exp else None,
                 explanation_parse_mode=None,
-                is_anonymous=False,
+                is_anonymous=poll_is_anon,
                 reply_markup=_make_group_explanation_buttons(date_key, idx)
             )
-        except Exception as markup_err:
-            print(f"[GroupQuiz] send_poll with markup failed for Q{idx+1}: {markup_err}. Retrying without markup...")
+        except Exception as err1:
+            print(f"[GroupQuiz] send_poll attempt 1 error for Q{idx+1}: {err1}. Retrying with is_anonymous=True...")
             try:
                 poll_msg = bot.send_poll(
                     chat_id=chat_id,
@@ -1477,22 +1517,36 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                     correct_option_id=correct_id,
                     explanation=short_exp if short_exp else None,
                     explanation_parse_mode=None,
-                    is_anonymous=False
+                    is_anonymous=True,
+                    reply_markup=_make_group_explanation_buttons(date_key, idx)
                 )
-            except Exception as direct_err:
-                print(f"[GroupQuiz] Fatal: send_poll failed completely for Q{idx+1}: {direct_err}")
+            except Exception as err2:
+                print(f"[GroupQuiz] send_poll attempt 2 error for Q{idx+1}: {err2}. Retrying without markup...")
                 try:
-                    bot.send_message(
+                    poll_msg = bot.send_poll(
                         chat_id=chat_id,
-                        text=(
-                            f"⚠️ <b>Poll Error for Q{idx+1}:</b> {html.escape(str(direct_err))}\n\n"
-                            "Please ensure @vyasify_quiz_bot is an <b>Admin</b> in this group with permission to send polls."
-                        ),
-                        parse_mode=ParseMode.HTML
+                        question=question_text,
+                        options=clean_options,
+                        type=Poll.QUIZ,
+                        correct_option_id=correct_id,
+                        explanation=short_exp if short_exp else None,
+                        explanation_parse_mode=None,
+                        is_anonymous=True
                     )
-                except Exception:
-                    pass
-                continue
+                except Exception as direct_err:
+                    print(f"[GroupQuiz] Fatal: send_poll failed completely for Q{idx+1}: {direct_err}")
+                    try:
+                        bot.send_message(
+                            chat_id=chat_id,
+                            text=(
+                                f"⚠️ <b>Poll Error for Q{idx+1}:</b> {html.escape(str(direct_err))}\n\n"
+                                "Please ensure @vyasify_quiz_bot is an <b>Administrator</b> in this channel with permission to post messages and polls."
+                            ),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        pass
+                    continue
 
         if poll_msg and poll_msg.poll:
             group_poll_registry[poll_msg.poll.id] = {
@@ -1507,7 +1561,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"✅ All {len(questions)} questions posted!\n"
         f"📖 <a href='https://vyasify.in/current-affairs'>Read Today's Full Editorial on Vyasify</a>\n"
-        f"💬 Discuss your answers below ⬇️"
+        f"💬 Tap <b>Leave a comment</b> below to discuss your answers!"
     )
     try:
         bot.send_message(
@@ -1522,8 +1576,53 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
     # Mark date as posted so auto-scheduler doesn't duplicate
     group_quiz_posted[date_key] = True
     save_group_quiz_posted()
-    print(f"[GroupQuiz] Posted {len(questions)} questions to group {chat_id} for date {date_key}")
+    print(f"[GroupQuiz] Posted {len(questions)} questions to channel/group {chat_id} for date {date_key}")
 
+
+def channel_post_handler(update: Update, context: CallbackContext):
+    """
+    Handles messages posted in channels where the bot is an administrator.
+    When /quiz (or /quiz@vyasify_quiz_bot) is posted in the channel:
+    1. Intercepts the post and saves the channel ID/username as active target.
+    2. Deletes the trigger message so the channel feed remains clean.
+    3. Posts today's daily quiz polls directly into the channel!
+    """
+    post = update.channel_post
+    if not post:
+        return
+
+    text = (post.text or post.caption or "").strip()
+    if not text:
+        return
+
+    first_word = text.split()[0].lower()
+    if first_word in ("/quiz", "/quiz@vyasify_quiz_bot"):
+        chat_id = post.chat.id
+        print(f"[ChannelQuiz] /quiz triggered in channel: {post.chat.title} ({chat_id})")
+
+        # Save this channel ID as active target
+        save_channel_target(chat_id)
+
+        # Delete trigger post if bot has delete permission
+        try:
+            post.delete()
+        except Exception as del_err:
+            print(f"[ChannelQuiz] Note: could not delete trigger post: {del_err}")
+
+        date_key = get_quiz_date_key()
+        questions = fetch_questions(date_key)
+        if not questions:
+            try:
+                context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ <b>No quiz questions found for today's cycle.</b>\nQuestions are updated at 09:00 AM IST.",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                pass
+            return
+
+        post_group_quiz(context.bot, chat_id, questions, date_key)
 
 def quiz_command_handler(update: Update, context: CallbackContext):
     """
@@ -1539,31 +1638,39 @@ def quiz_command_handler(update: Update, context: CallbackContext):
     user = update.effective_user
 
     # If used in private chat (DM)
-    if chat.type not in ("group", "supergroup"):
+    if chat.type in ("private",):
         if user and user.id == ADMIN_ID:
-            group_chat_id = os.environ.get("GROUP_CHAT_ID")
-            if group_chat_id:
-                msg.reply_text(f"🚀 Admin trigger received in DM. Posting today's quiz to group ({group_chat_id})...", parse_mode=ParseMode.HTML)
+            # Check if admin provided target as argument, e.g. /quiz @vyasify
+            target = None
+            if context.args and len(context.args) > 0:
+                target = context.args[0].strip()
+                save_channel_target(target)
+            else:
+                target = get_saved_channel_id()
+
+            if target:
+                msg.reply_text(f"🚀 Admin trigger received! Posting today's quiz to <b>{target}</b>...", parse_mode=ParseMode.HTML)
                 date_key = get_quiz_date_key()
                 questions = fetch_questions(date_key)
                 if questions:
-                    post_group_quiz(context.bot, group_chat_id, questions, date_key)
-                    msg.reply_text("✅ Quiz posted successfully to group!", parse_mode=ParseMode.HTML)
+                    post_group_quiz(context.bot, target, questions, date_key)
+                    msg.reply_text(f"✅ Quiz posted successfully to {target}!", parse_mode=ParseMode.HTML)
                 else:
                     msg.reply_text("❌ No quiz questions found for today's cycle.", parse_mode=ParseMode.HTML)
                 return
             else:
                 msg.reply_text(
-                    "ℹ️ <b>GROUP_CHAT_ID is not configured in bot environment.</b>\n\n"
-                    "• To post in a group: Add bot to your group as <b>Admin</b> and send <code>/quiz</code> directly in the group.\n"
-                    "• To attempt today's quiz right here in DM: Tap /start below!",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=start_keyboard()
+                    "ℹ️ <b>Channel not yet linked.</b>\n\n"
+                    "To post to your channel, send:\n"
+                    "<code>/quiz @YourChannelUsername</code> (e.g. <code>/quiz @vyasify</code>)\n\n"
+                    "Or send <code>/quiz</code> directly inside your channel!\n\n"
+                    "<i>Ensure @vyasify_quiz_bot is added as an <b>Administrator</b> in your channel with 'Post Messages' permission.</i>",
+                    parse_mode=ParseMode.HTML
                 )
                 return
         else:
             msg.reply_text(
-                "ℹ️ <b>The /quiz command is for Telegram groups.</b>\n\n"
+                "ℹ️ <b>The /quiz command posts daily polls to Telegram channels.</b>\n\n"
                 "To attempt today's timed quiz here in private chat, tap /start below!",
                 parse_mode=ParseMode.HTML,
                 reply_markup=start_keyboard()
@@ -1623,23 +1730,23 @@ def quiz_command_handler(update: Update, context: CallbackContext):
 
 def auto_post_group_quiz(context: CallbackContext):
     """
-    Daily job: auto-posts quiz to group at 5:00 PM IST if not already manually posted.
-    GROUP_CHAT_ID must be set via GROUP_CHAT_ID env var or config.
+    Daily job: auto-posts quiz to channel at 5:00 PM IST if not already manually posted.
+    Uses saved channel ID, GROUP_CHAT_ID env var, or config.
     """
-    group_chat_id_str = os.environ.get("GROUP_CHAT_ID", "")
-    if not group_chat_id_str:
+    target = get_saved_channel_id()
+    if not target:
         cfg = get_bot_config()
-        group_chat_id_str = str(cfg.get("groupChatId", ""))
+        target = str(cfg.get("groupChatId", "")).strip()
 
-    if not group_chat_id_str or group_chat_id_str in ("", "0"):
-        print("[AutoQuiz] GROUP_CHAT_ID not configured. Skipping auto-post.")
+    if not target or target in ("", "0"):
+        print("[AutoQuiz] No channel target configured. Skipping auto-post.")
         return
 
+    # Can be numeric ID or @channel_username
     try:
-        group_chat_id = int(group_chat_id_str)
+        group_chat_id = int(target)
     except ValueError:
-        print(f"[AutoQuiz] Invalid GROUP_CHAT_ID: {group_chat_id_str}")
-        return
+        group_chat_id = target
 
     date_key = get_quiz_date_key()
 
@@ -1804,6 +1911,23 @@ def main():
     dp.add_handler(CommandHandler("broadcast", broadcast_command_handler))
     dp.add_handler(CommandHandler("users", users_stats_handler))
     dp.add_handler(CommandHandler("quiz", quiz_command_handler))
+
+    # Channel post listener: catches /quiz posted directly inside Telegram channels
+    try:
+        if hasattr(Filters, 'update') and hasattr(Filters.update, 'channel_posts'):
+            dp.add_handler(MessageHandler(Filters.update.channel_posts, channel_post_handler))
+        elif hasattr(Filters, 'update') and hasattr(Filters.update, 'channel_post'):
+            dp.add_handler(MessageHandler(Filters.update.channel_post, channel_post_handler))
+        elif hasattr(Filters, 'UpdateType') and hasattr(Filters.UpdateType, 'CHANNEL_POSTS'):
+            dp.add_handler(MessageHandler(Filters.UpdateType.CHANNEL_POSTS, channel_post_handler))
+        elif hasattr(Filters, 'UpdateType') and hasattr(Filters.UpdateType, 'CHANNEL_POST'):
+            dp.add_handler(MessageHandler(Filters.UpdateType.CHANNEL_POST, channel_post_handler))
+        else:
+            dp.add_handler(MessageHandler(Filters.all, channel_post_handler))
+        print("[Setup] Registered channel_post_handler for channel triggers.")
+    except Exception as chan_err:
+        print(f"[Setup] Channel post handler registration note: {chan_err}")
+
     dp.add_handler(CallbackQueryHandler(button_handler))
 
     # Register visible bot commands in Telegram UI
