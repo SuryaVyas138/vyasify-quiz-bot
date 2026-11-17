@@ -1354,21 +1354,24 @@ def save_group_quiz_posted():
         print(f"[GroupQuiz] Error saving posted log: {e}")
 
 
-def is_group_admin(bot, chat_id, user_id):
-    """Returns True if user_id is a Telegram group admin/creator OR the bot admin."""
+def is_group_admin(bot, chat_id, user_id, sender_chat_id=None):
+    """Returns True if user_id is a Telegram group admin/creator, anonymous channel admin, OR bot admin."""
     if user_id == ADMIN_ID:
+        return True
+    if sender_chat_id and sender_chat_id == chat_id:
         return True
     try:
         member = bot.get_chat_member(chat_id, user_id)
         return member.status in ("creator", "administrator")
-    except Exception:
+    except Exception as e:
+        print(f"[is_group_admin] Check error for user {user_id} in chat {chat_id}: {e}")
         return False
 
 
 def _make_group_explanation_buttons(date_key, q_index):
     """
     Creates inline keyboard for group quiz questions:
-    - Button 1: Mini App button opening vyasify.in/tg-explain?date={date_key}&q={q_index}
+    - Button 1: Opens Vyasify Mini App explanation (using standard URL for 100% group compatibility)
     - Button 2: Link to Vyasify current-affairs page
     """
     tg_app_url = f"https://vyasify.in/tg-explain?date={date_key}&q={q_index}"
@@ -1376,7 +1379,7 @@ def _make_group_explanation_buttons(date_key, q_index):
         [
             InlineKeyboardButton(
                 "💡 View Full Explanation",
-                web_app=WebAppInfo(url=tg_app_url)
+                url=tg_app_url
             )
         ],
         [
@@ -1432,31 +1435,72 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
             short_exp = (short_exp + " | For detailed UPSC notes visit vyasify.in/current-affairs").strip()
         short_exp = short_exp[:200]  # Hard cap
 
-        question_text = f"Q{idx+1}. {q.get('question', '')}"
+        # Clean options: ensure distinct, non-empty, and max 100 chars
+        seen_opts = set()
+        clean_options = []
+        for opt_idx, opt in enumerate(options):
+            opt_str = opt.strip() if opt else f"Option {chr(65+opt_idx)}"
+            if opt_str in seen_opts:
+                opt_str = f"{opt_str} ({chr(65+opt_idx)})"
+            seen_opts.add(opt_str)
+            clean_options.append(opt_str[:100])
 
+        if correct_id < 0 or correct_id >= len(clean_options):
+            correct_id = 0
+
+        question_text = f"Q{idx+1}. {q.get('question', '')}".strip()
+        if len(question_text) > 300:
+            question_text = question_text[:297] + "..."
+
+        poll_msg = None
+        # Primary attempt: send with explanation buttons
         try:
             poll_msg = bot.send_poll(
                 chat_id=chat_id,
-                question=question_text[:300],  # Telegram poll question limit
-                options=options,
+                question=question_text,
+                options=clean_options,
                 type=Poll.QUIZ,
                 correct_option_id=correct_id,
                 explanation=short_exp if short_exp else None,
-                explanation_parse_mode=None,  # Plain text for safety
+                explanation_parse_mode=None,
                 is_anonymous=False,
-                # No open_period = no timer, students can answer anytime
                 reply_markup=_make_group_explanation_buttons(date_key, idx)
             )
-            # Register this group poll for later DM explanation serving
+        except Exception as markup_err:
+            print(f"[GroupQuiz] send_poll with markup failed for Q{idx+1}: {markup_err}. Retrying without markup...")
+            try:
+                poll_msg = bot.send_poll(
+                    chat_id=chat_id,
+                    question=question_text,
+                    options=clean_options,
+                    type=Poll.QUIZ,
+                    correct_option_id=correct_id,
+                    explanation=short_exp if short_exp else None,
+                    explanation_parse_mode=None,
+                    is_anonymous=False
+                )
+            except Exception as direct_err:
+                print(f"[GroupQuiz] Fatal: send_poll failed completely for Q{idx+1}: {direct_err}")
+                try:
+                    bot.send_message(
+                        chat_id=chat_id,
+                        text=(
+                            f"⚠️ <b>Poll Error for Q{idx+1}:</b> {html.escape(str(direct_err))}\n\n"
+                            "Please ensure @vyasify_quiz_bot is an <b>Admin</b> in this group with permission to send polls."
+                        ),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception:
+                    pass
+                continue
+
+        if poll_msg and poll_msg.poll:
             group_poll_registry[poll_msg.poll.id] = {
                 "date_key": date_key,
                 "q_index": idx,
                 "q": q,
             }
-            time.sleep(0.8)  # Slight delay between questions to avoid flood limits
-        except Exception as e:
-            print(f"[GroupQuiz] Failed to post Q{idx+1}: {e}")
-            time.sleep(1)
+        time.sleep(0.8)
 
     # Footer
     footer_text = (
@@ -1485,7 +1529,7 @@ def quiz_command_handler(update: Update, context: CallbackContext):
     """
     /quiz — Posts today's quiz questions to the group.
     Restricted to group admins and bot admin only.
-    Can be used in group chats only.
+    If used in private DM, allows admin to trigger group post or user to attempt DM quiz.
     """
     msg = update.message
     if not msg:
@@ -1494,15 +1538,43 @@ def quiz_command_handler(update: Update, context: CallbackContext):
     chat = update.effective_chat
     user = update.effective_user
 
-    # Only works in group / supergroup
+    # If used in private chat (DM)
     if chat.type not in ("group", "supergroup"):
-        msg.reply_text("⚠️ The /quiz command can only be used in a group chat.", parse_mode=ParseMode.HTML)
-        return
+        if user and user.id == ADMIN_ID:
+            group_chat_id = os.environ.get("GROUP_CHAT_ID")
+            if group_chat_id:
+                msg.reply_text(f"🚀 Admin trigger received in DM. Posting today's quiz to group ({group_chat_id})...", parse_mode=ParseMode.HTML)
+                date_key = get_quiz_date_key()
+                questions = fetch_questions(date_key)
+                if questions:
+                    post_group_quiz(context.bot, group_chat_id, questions, date_key)
+                    msg.reply_text("✅ Quiz posted successfully to group!", parse_mode=ParseMode.HTML)
+                else:
+                    msg.reply_text("❌ No quiz questions found for today's cycle.", parse_mode=ParseMode.HTML)
+                return
+            else:
+                msg.reply_text(
+                    "ℹ️ <b>GROUP_CHAT_ID is not configured in bot environment.</b>\n\n"
+                    "• To post in a group: Add bot to your group as <b>Admin</b> and send <code>/quiz</code> directly in the group.\n"
+                    "• To attempt today's quiz right here in DM: Tap /start below!",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=start_keyboard()
+                )
+                return
+        else:
+            msg.reply_text(
+                "ℹ️ <b>The /quiz command is for Telegram groups.</b>\n\n"
+                "To attempt today's timed quiz here in private chat, tap /start below!",
+                parse_mode=ParseMode.HTML,
+                reply_markup=start_keyboard()
+            )
+            return
 
-    # Admin-only gate
-    if not is_group_admin(context.bot, chat.id, user.id):
+    # In group: check admin status
+    sender_chat_id = msg.sender_chat.id if msg.sender_chat else None
+    if not is_group_admin(context.bot, chat.id, user.id if user else 0, sender_chat_id):
         try:
-            msg.reply_text("🔒 Only group admins can run the daily quiz.", parse_mode=ParseMode.HTML)
+            msg.reply_text("🔒 Only group admins can run the daily quiz in this group.", parse_mode=ParseMode.HTML)
         except Exception:
             pass
         return
@@ -1733,6 +1805,18 @@ def main():
     dp.add_handler(CommandHandler("users", users_stats_handler))
     dp.add_handler(CommandHandler("quiz", quiz_command_handler))
     dp.add_handler(CallbackQueryHandler(button_handler))
+
+    # Register visible bot commands in Telegram UI
+    try:
+        from telegram import BotCommand
+        commands = [
+            BotCommand("start", "Attempt today's timed prelims quiz"),
+            BotCommand("quiz", "Post daily quiz in group (Admin)"),
+            BotCommand("leaderboard", "View daily top rankers"),
+        ]
+        updater.bot.set_my_commands(commands)
+    except Exception as cmd_err:
+        print(f"[Commands] set_my_commands warning: {cmd_err}")
     dp.add_handler(PollAnswerHandler(poll_answer_handler))
     dp.add_handler(MessageHandler(Filters.photo, photo_broadcast_handler))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_handler))
