@@ -267,11 +267,21 @@ def get_quiz_date_key():
         
     return target_date.isoformat()
 
+def normalize_newlines(text):
+    """Converts escaped newlines (\n, \r\n) and literal slash-n (/n) into real newline characters."""
+    if not text:
+        return ""
+    s = str(text)
+    s = s.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+    s = re.sub(r'(?<=[^\s/])\s*/n\s*', '\n', s)
+    s = s.replace(" /n ", "\n").replace("/n ", "\n").replace(" /n", "\n")
+    return s.strip()
+
 def clean_text(text):
     """Robust text cleaner for Telegram HTML parsing."""
     if not text:
         return ""
-    text = str(text).replace('\\n', '\n').replace('\r\n', '\n')
+    text = normalize_newlines(text)
     return html.escape(text)
 
 def format_time(seconds):
@@ -282,7 +292,8 @@ def format_time(seconds):
 def truncate(text, limit=100):
     if not text:
         return ""
-    text = str(text).replace("\\n", " ").strip()
+    text = normalize_newlines(text)
+    text = re.sub(r'\s+', ' ', text).strip()
     return text if len(text) <= limit else text[:limit - 3] + "..."
 
 def stylize_name_squared(input_str: str) -> str:
@@ -457,6 +468,8 @@ def fetch_questions(date_key=None):
                 else:
                     row["_time"] = default_t
                 row["_date_obj"] = d_obj
+                row["question"] = normalize_newlines(row.get("question", ""))
+                row["explanation"] = normalize_newlines(row.get("explanation", ""))
                 row["option_a"] = row.get("option_a", "").strip() or "Option A"
                 row["option_b"] = row.get("option_b", "").strip() or "Option B"
                 row["option_c"] = row.get("option_c", "").strip() or "Option C"
@@ -1488,16 +1501,31 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         if correct_id < 0 or correct_id >= len(clean_options):
             correct_id = 0
 
-        question_text = f"Q{idx+1}. {q.get('question', '')}".strip()
-        if len(question_text) > 300:
-            question_text = question_text[:297] + "..."
+        clean_q = normalize_newlines(q.get('question', ''))
+
+        # Post full Question Statement as formatted HTML message
+        # This completely solves character limit truncation and renders all statements & line breaks perfectly!
+        question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{html.escape(clean_q)}"
+        try:
+            bot.send_message(
+                chat_id=chat_id,
+                text=question_post_text,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+            time.sleep(0.3)
+        except Exception as q_err:
+            print(f"[GroupQuiz] Question statement post error ({idx+1}): {q_err}")
+
+        # Poll question: compact voting prompt
+        poll_question = f"📊 Q{idx+1}. Select your answer:"
 
         poll_msg = None
         # Attempt 1: send with explanation buttons and anonymous mode
         try:
             poll_msg = bot.send_poll(
                 chat_id=chat_id,
-                question=question_text,
+                question=poll_question,
                 options=clean_options,
                 type=Poll.QUIZ,
                 correct_option_id=correct_id,
@@ -1511,7 +1539,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
             try:
                 poll_msg = bot.send_poll(
                     chat_id=chat_id,
-                    question=question_text,
+                    question=poll_question,
                     options=clean_options,
                     type=Poll.QUIZ,
                     correct_option_id=correct_id,
@@ -1525,7 +1553,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 try:
                     poll_msg = bot.send_poll(
                         chat_id=chat_id,
-                        question=question_text,
+                        question=poll_question,
                         options=clean_options,
                         type=Poll.QUIZ,
                         correct_option_id=correct_id,
