@@ -1620,7 +1620,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         f"🎯 <b>Vyasify Daily UPSC Prelims Quiz</b> • {date_display}\n\n"
         f"📌 <b>Topic:</b> {html.escape(topic)}\n"
         f"📋 <b>Total:</b> {len(questions)} MCQs\n"
-        f"💡 Tap <i>View Full Explanation</i> under each question for explanation\n"
+        f"💡 Tap <i>Explanation</i> under each question to reveal notes\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     header_markup = InlineKeyboardMarkup([
@@ -1670,8 +1670,24 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
 
         # Post full Question Statement as formatted HTML message
         # Uses format_question_for_telegram to ensure clean double line breaks between statements
+        # Includes direct detailed explanation in a tap-to-reveal <tg-spoiler> so students get direct text in channel with 0 redirects!
         clean_q_formatted = format_question_for_telegram(q.get('question', ''))
-        question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{clean_q_formatted}"
+        raw_exp_text = q.get('explanation', '') or ''
+        clean_exp_formatted = format_question_for_telegram(raw_exp_text) if raw_exp_text else ''
+
+        if clean_exp_formatted:
+            # Ensure total message length fits within Telegram's 4096 character limit
+            if len(clean_q_formatted) + len(clean_exp_formatted) > 3900:
+                clean_exp_formatted = clean_exp_formatted[:3000] + "..."
+            question_post_text = (
+                f"📝 <b>QUESTION {idx+1}</b>\n\n"
+                f"{clean_q_formatted}\n\n"
+                f"💡 <b>Explanation (Tap to reveal):</b>\n"
+                f"<tg-spoiler>{clean_exp_formatted}</tg-spoiler>"
+            )
+        else:
+            question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{clean_q_formatted}"
+
         try:
             safe_send_message(
                 bot=bot,
@@ -1684,11 +1700,10 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         except Exception as q_err:
             print(f"[GroupQuiz] Question statement post error ({idx+1}): {q_err}")
 
-        # Poll question: compact voting prompt
+        # Poll question: compact voting prompt (clean poll with NO external redirect buttons)
         poll_question = f"📊 Q{idx+1}. Select your answer:"
 
         poll_msg = None
-        # Attempt 1: send with explanation buttons and anonymous mode
         try:
             poll_msg = safe_send_poll(
                 bot=bot,
@@ -1700,25 +1715,11 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 explanation=short_exp if short_exp else None,
                 explanation_parse_mode=None,
                 is_anonymous=poll_is_anon,
-                reply_markup=_make_group_explanation_buttons(date_key, idx)
+                reply_markup=None
             )
-        except Exception as err1:
-            print(f"[GroupQuiz] send_poll attempt 1 error for Q{idx+1}: {err1}. Retrying without markup...")
-            try:
-                poll_msg = safe_send_poll(
-                    bot=bot,
-                    chat_id=chat_id,
-                    question=poll_question,
-                    options=clean_options,
-                    type=Poll.QUIZ,
-                    correct_option_id=correct_id,
-                    explanation=short_exp if short_exp else None,
-                    explanation_parse_mode=None,
-                    is_anonymous=True
-                )
-            except Exception as direct_err:
-                print(f"[GroupQuiz] Fatal: send_poll failed completely for Q{idx+1}: {direct_err}")
-                continue
+        except Exception as direct_err:
+            print(f"[GroupQuiz] Fatal: send_poll failed completely for Q{idx+1}: {direct_err}")
+            continue
 
         if poll_msg and poll_msg.poll:
             group_poll_registry[poll_msg.poll.id] = {
