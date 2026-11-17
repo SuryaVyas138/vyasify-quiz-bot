@@ -1498,24 +1498,36 @@ def is_group_admin(bot, chat_id, user_id, sender_chat_id=None):
         return False
 
 
+def make_direct_poll_explanation(raw_exp):
+    """
+    Creates a clean, direct factual explanation for native Telegram poll tooltips (max 200 chars).
+    STRICTLY NO website links, URLs, or promotional text.
+    """
+    if not raw_exp:
+        return None
+    s = str(raw_exp)
+    # Strip any URLs, links, or website promotional text
+    s = re.sub(r'https?://[^\s]+', '', s)
+    s = re.sub(r'Visit [^.\n]+', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'For (?:more|detailed)[^.\n]+', '', s, flags=re.IGNORECASE)
+    s = normalize_newlines(s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    if len(s) > 200:
+        s = s[:197].rsplit(' ', 1)[0] + '...'
+    return s[:200]
+
 def _make_group_explanation_buttons(date_key, q_index):
     """
-    Creates inline keyboard for group quiz questions:
-    - Button 1: Opens Vyasify Mini App explanation (using standard URL for 100% group compatibility)
-    - Button 2: Link to Vyasify current-affairs page
+    Creates inline button for channel quiz questions:
+    - Deep-links to @vyasify_quiz_bot DM inside Telegram to read the full UPSC notes.
+    - No external website browser redirect!
     """
-    tg_app_url = f"https://vyasify.in/tg-explain?date={date_key}&q={q_index}"
+    clean_date = date_key.replace("-", "_")
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
                 "💡 View Full Explanation",
-                url=tg_app_url
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📖 Read Today's Editorial on Vyasify",
-                url="https://vyasify.in/current-affairs"
+                url=f"https://t.me/vyasify_quiz_bot?start=exp_{clean_date}_{q_index}"
             )
         ]
     ])
@@ -1640,14 +1652,8 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         ]
         correct_id = extract_correct_option_id(q.get("correct_option"))
 
-        # Telegram quiz explanation limit: 200 chars — use as short hook only
-        raw_exp = q.get("explanation", "") or ""
-        short_exp = raw_exp[:160].strip()
-        if len(raw_exp) > 160:
-            short_exp += "... Visit vyasify.in/current-affairs for full analysis."
-        else:
-            short_exp = (short_exp + " | For detailed UPSC notes visit vyasify.in/current-affairs").strip()
-        short_exp = short_exp[:200]  # Hard cap
+        # Native direct poll explanation (strictly 0 links, direct factual reasoning)
+        short_exp = make_direct_poll_explanation(q.get("explanation", ""))
 
         # Clean options: ensure distinct, non-empty, and max 100 chars
         seen_opts = set()
@@ -1674,7 +1680,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True
             )
-            time.sleep(0.8)
+            time.sleep(1.0)
         except Exception as q_err:
             print(f"[GroupQuiz] Question statement post error ({idx+1}): {q_err}")
 
@@ -1720,37 +1726,9 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 "q_index": idx,
                 "q": q,
             }
-        time.sleep(1.8)
+        time.sleep(4.0)
 
-    # Footer with leaderboard and editorial buttons
-    footer_text = (
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✅ <b>All {len(questions)} Daily Questions Posted!</b>\n\n"
-        f"📖 <a href='https://vyasify.in/current-affairs'>Read Today's Full Editorial on Vyasify</a>\n\n"
-        f"💬 Tap <b>Leave a comment</b> below to discuss your answers!"
-    )
-    footer_markup = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🏆 Live Leaderboard", url="https://t.me/vyasify_quiz_bot?start=leaderboard"),
-            InlineKeyboardButton("⚡️ Take Timed Test", url="https://t.me/vyasify_quiz_bot?start=quiz")
-        ],
-        [
-            InlineKeyboardButton("📖 Read Editorial on Vyasify", url="https://vyasify.in/current-affairs")
-        ]
-    ])
-    try:
-        safe_send_message(
-            bot=bot,
-            chat_id=chat_id,
-            text=footer_text,
-            reply_markup=footer_markup,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True
-        )
-    except Exception as e:
-        print(f"[GroupQuiz] Footer post failed: {e}")
-
-    # Mark date as posted so auto-scheduler doesn't duplicate
+    # Mark date as posted so auto-scheduler doesn't duplicate (no footer message per user requirement)
     group_quiz_posted[date_key] = True
     save_group_quiz_posted()
     print(f"[GroupQuiz] Posted {len(questions)} questions to channel/group {chat_id} for date {date_key}")
@@ -1917,7 +1895,7 @@ def quiz_command_handler(update: Update, context: CallbackContext):
 
 def auto_post_group_quiz(context: CallbackContext):
     """
-    Daily job: auto-posts quiz to channel at 5:00 PM IST if not already manually posted.
+    Daily job: auto-posts quiz to channel at 4:00 PM IST if not already manually posted.
     Uses saved channel ID, GROUP_CHAT_ID env var, or config.
     """
     target = get_saved_channel_id()
@@ -1953,7 +1931,7 @@ def auto_post_group_quiz(context: CallbackContext):
 
 def post_evening_hall_of_fame(bot, chat_id, date_key=None):
     """
-    Posts the Option B Top 10 Hall of Fame Leaderboard to the channel at 9:00 PM IST.
+    Posts the Option B Top 10 Hall of Fame Leaderboard to the channel at 10:00 PM IST.
     """
     if not date_key:
         date_key = get_quiz_date_key()
@@ -2035,12 +2013,12 @@ def auto_post_evening_hall_of_fame(context: CallbackContext):
         group_chat_id = target
 
     date_key = get_quiz_date_key()
-    print(f"[AutoHallOfFame] Triggering 9:00 PM Hall of Fame for {date_key} to {group_chat_id}...")
+    print(f"[AutoHallOfFame] Triggering 10:00 PM Hall of Fame for {date_key} to {group_chat_id}...")
     post_evening_hall_of_fame(context.bot, group_chat_id, date_key)
 
 
 def hall_of_fame_command_handler(update: Update, context: CallbackContext):
-    """Admin command to manually trigger or test the 9:00 PM Hall of Fame broadcast."""
+    """Admin command to manually trigger or test the 10:00 PM Hall of Fame broadcast."""
     user = update.effective_user
     if not user or user.id != ADMIN_ID:
         if update.message:
@@ -2247,24 +2225,21 @@ def main():
     dp.add_handler(MessageHandler(Filters.photo, photo_broadcast_handler))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_handler))
 
-    # ── Schedule auto-post at 17:00 IST (11:30 UTC) daily ──
-    # IST = UTC+5:30, so 17:00 IST = 11:30 UTC
+    # ── Schedule auto-post at 16:00 IST (10:30 UTC) daily ──
+    # IST = UTC+5:30, so 16:00 IST = 10:30 UTC
     IST_OFFSET = timedelta(hours=5, minutes=30)
     now_ist_dt = datetime.utcnow() + IST_OFFSET
-    target_ist = now_ist_dt.replace(hour=17, minute=0, second=0, microsecond=0)
+    target_ist = now_ist_dt.replace(hour=16, minute=0, second=0, microsecond=0)
     if now_ist_dt >= target_ist:
-        # Already past 5PM today, schedule for tomorrow
+        # Already past 4PM today, schedule for tomorrow
         target_ist += timedelta(days=1)
     delay_seconds = (target_ist - now_ist_dt).total_seconds()
 
     jq.run_once(auto_post_group_quiz, delay_seconds, name="auto_quiz_first_run")
 
-    # After first fire, schedule recurring daily at 11:30 UTC (5PM IST)
-    # We use run_repeating with 86400s (24h) starting from that first fire point
-    # run_once callback re-schedules itself via run_repeating
+    # After first fire, schedule recurring daily at 10:30 UTC (4PM IST)
     def schedule_daily_quiz(context_inner: CallbackContext):
         auto_post_group_quiz(context_inner)
-        # Re-arm for next day
         context_inner.job_queue.run_once(schedule_daily_quiz, 86400, name="auto_quiz_daily")
 
     # Patch first run to also re-arm
@@ -2272,13 +2247,12 @@ def main():
         auto_post_group_quiz(context_inner)
         context_inner.job_queue.run_once(schedule_daily_quiz, 86400, name="auto_quiz_daily")
 
-    # Cancel the plain first_run job, replace with re-arming one
     for job in jq.get_jobs_by_name("auto_quiz_first_run"):
         job.schedule_removal()
     jq.run_once(first_run_quiz, delay_seconds, name="auto_quiz")
 
-    # ── Schedule Hall of Fame auto-post at 21:00 IST (15:30 UTC) daily ──
-    target_hof_ist = now_ist_dt.replace(hour=21, minute=0, second=0, microsecond=0)
+    # ── Schedule Hall of Fame auto-post at 22:00 IST (16:30 UTC) daily (10:00 PM IST) ──
+    target_hof_ist = now_ist_dt.replace(hour=22, minute=0, second=0, microsecond=0)
     if now_ist_dt >= target_hof_ist:
         target_hof_ist += timedelta(days=1)
     delay_hof_seconds = (target_hof_ist - now_ist_dt).total_seconds()
@@ -2294,8 +2268,8 @@ def main():
     jq.run_once(first_run_hof, delay_hof_seconds, name="auto_hof")
 
     print(f"✅ Vyasify Dynamic Bot is Online...")
-    print(f"📅 Group auto-quiz scheduled: first fire in {int(delay_seconds/60)}m {int(delay_seconds%60)}s")
-    print(f"🏆 Evening Hall of Fame scheduled: first fire in {int(delay_hof_seconds/60)}m {int(delay_hof_seconds%60)}s")
+    print(f"📅 Group auto-quiz scheduled for 4:00 PM IST: first fire in {int(delay_seconds/60)}m {int(delay_seconds%60)}s")
+    print(f"🏆 Evening Hall of Fame scheduled for 10:00 PM IST: first fire in {int(delay_hof_seconds/60)}m {int(delay_hof_seconds%60)}s")
     updater.start_polling()
     updater.idle()
 
