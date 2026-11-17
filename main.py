@@ -1602,12 +1602,13 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
     except Exception:
         date_display = date_key
 
-    # Announcement header (Merged 2 & 3: Ultra-clean, exam-focused)
+    # Announcement header (User-approved clean layout)
     topic = questions[0].get("topic", "Daily Current Affairs") if questions else "Daily Current Affairs"
     header_text = (
         f"🎯 <b>Vyasify Daily UPSC Prelims Quiz</b> • {date_display}\n\n"
-        f"📌 <b>{html.escape(topic)}</b> • {len(questions)} MCQs (Prelims Standard)\n"
-        f"💡 <i>Tap <b>View Full Explanation</b> under each poll for notes</i>\n"
+        f"📌 <b>Topic:</b> {html.escape(topic)}\n"
+        f"📋 <b>Total:</b> {len(questions)} MCQs\n"
+        f"💡 Tap <i>View Full Explanation</i> under each question for explanation\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     header_markup = InlineKeyboardMarkup([
