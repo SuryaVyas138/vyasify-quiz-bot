@@ -1574,15 +1574,13 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
     # In channels, polls MUST be anonymous (is_anonymous=True)
     poll_is_anon = True if is_channel else True
 
-    # Announcement header (crisp UPSC format, no 'attempt anytime', prominent live leaderboard)
+    # Announcement header (clean, crisp, no filler text)
     topic = questions[0].get("topic", "Daily Current Affairs") if questions else "Daily Current Affairs"
     header_text = (
         f"🎯 <b>Vyasify Daily UPSC Prelims Quiz — {date_key}</b>\n\n"
         f"📌 <b>Topic:</b> {html.escape(topic)}\n"
-        f"📋 <b>Total:</b> {len(questions)} High-Yield UPSC Questions\n\n"
-        f"🏆 <b>Unified Live Leaderboard:</b>\n"
-        f"Attempt the timed test on @vyasify_quiz_bot or Vyasify Web to benchmark your score live against fellow aspirants!\n\n"
-        f"💡 <i>Tap <b>View Full Explanation</b> under each question for detailed UPSC analysis & syllabus linkages.</i>\n"
+        f"📋 <b>Total:</b> {len(questions)} High-Yield Questions\n"
+        f"💡 Tap <i>View Full Explanation</i> under each question for detailed UPSC analysis\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     header_markup = InlineKeyboardMarkup([
@@ -1696,14 +1694,12 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
             }
         time.sleep(1.8)
 
-    # Footer with unified leaderboard and full editorial links
+    # Footer with leaderboard and editorial buttons
     footer_text = (
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"✅ <b>All {len(questions)} Daily Questions Posted!</b>\n\n"
-        f"🏆 <b>Leaderboard Active:</b>\n"
-        f"All attempts on @vyasify_quiz_bot and Vyasify Web sync to today's unified leaderboard.\n\n"
-        f"📖 <a href='https://vyasify.in/current-affairs'>Read Today's Complete Editorial on Vyasify</a>\n\n"
-        f"💬 Tap <b>Leave a comment</b> below to discuss key takeaways and doubts!"
+        f"📖 <a href='https://vyasify.in/current-affairs'>Read Today's Full Editorial on Vyasify</a>\n\n"
+        f"💬 Tap <b>Leave a comment</b> below to discuss your answers!"
     )
     footer_markup = InlineKeyboardMarkup([
         [
