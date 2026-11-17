@@ -14,7 +14,8 @@ try:
         InlineKeyboardButton,
         InlineKeyboardMarkup,
         Poll,
-        ParseMode
+        ParseMode,
+        WebAppInfo
     )
     from telegram.ext import (
         Updater,
@@ -32,6 +33,7 @@ except ImportError:
         InlineKeyboardButton,
         InlineKeyboardMarkup,
         Poll,
+        WebAppInfo,
     )
     from telegram.constants import ParseMode
     from telegram.ext import (
@@ -575,6 +577,27 @@ def welcome_user(update: Update, context: CallbackContext):
         serve_group_explanation_dm(update, context)
         return
 
+    # Check for group subscription deep-link: ?start=grp_sub
+    if context and context.args and len(context.args) > 0 and str(context.args[0]) == "grp_sub":
+        user = update.effective_user
+        if user:
+            record_user(user)
+        sub_msg = (
+            "✅ <b>Subscribed to Vyasify Daily Quiz!</b>\n\n"
+            "You are now registered for:\n"
+            "• 🔔 5:00 PM daily group quiz alerts\n"
+            "• 🏆 Daily leaderboard ranking notifications\n"
+            "• 💡 UPSC Current Affairs answer keys & notes\n\n"
+            "Ready to test yourself? Tap below to attempt today's timed quiz!"
+        )
+        context.bot.send_message(
+            chat_id=user.id,
+            text=sub_msg,
+            parse_mode=ParseMode.HTML,
+            reply_markup=start_keyboard()
+        )
+        return
+
     cfg = get_bot_config()
     user = update.effective_user
     if user:
@@ -896,6 +919,17 @@ def handle_next_step(context, uid, status_label):
 def poll_answer_handler(update: Update, context: CallbackContext):
     answer = update.poll_answer
     uid = answer.user.id
+
+    # ── Check if this is a group quiz poll answer ──
+    if answer.poll_id in group_poll_registry:
+        try:
+            record_user(answer.user)
+            selected_idx = answer.option_ids[0] if answer.option_ids else -1
+            store_group_answer(uid, answer.poll_id, selected_idx)
+        except Exception as e:
+            print(f"[GroupQuiz] Error processing group poll answer: {e}")
+        return
+
     s = sessions.get(uid)
 
     if not s or s["locked"] or answer.poll_id != s["poll_id"]:
@@ -1240,6 +1274,69 @@ group_quiz_posted = {}  # {date_key: True}
 # { poll_id: { "date_key": str, "q_index": int, "q": dict } }
 group_poll_registry = {}
 
+GROUP_ANSWERS_FILE = "group_answers.json"
+group_answers = {}  # uid_str -> { poll_id: { selected, date_key, q_index, updated_at } }
+
+def load_group_answers():
+    global group_answers
+    if os.path.exists(GROUP_ANSWERS_FILE):
+        try:
+            with open(GROUP_ANSWERS_FILE, "r", encoding="utf-8") as f:
+                group_answers = json.load(f)
+        except Exception as e:
+            print(f"[GroupAnswers] Load error: {e}")
+            group_answers = {}
+
+def save_group_answers():
+    try:
+        with open(GROUP_ANSWERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(group_answers, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[GroupAnswers] Save error: {e}")
+
+def sync_group_answer_to_api(uid_str, date_key, q_index, poll_id, selected_idx):
+    """Syncs group poll answer asynchronously to Vyasify Web API."""
+    def _do_sync():
+        api_url = "https://vyasify.in/api/telegram-bot/group-answers"
+        payload = {
+            "userId": uid_str,
+            "dateKey": date_key,
+            "qIndex": q_index,
+            "pollId": poll_id,
+            "selected": selected_idx,
+        }
+        try:
+            headers = {"Content-Type": "application/json"}
+            if BOT_TOKEN:
+                headers["x-bot-secret"] = BOT_TOKEN
+            requests.post(api_url, json=payload, headers=headers, timeout=5)
+        except Exception as err:
+            print(f"[GroupAnswers] API sync warning ({poll_id}): {err}")
+
+    import threading
+    t = threading.Thread(target=_do_sync, daemon=True)
+    t.start()
+
+def store_group_answer(uid, poll_id, selected_idx):
+    uid_str = str(uid)
+    if uid_str not in group_answers:
+        group_answers[uid_str] = {}
+
+    reg = group_poll_registry.get(poll_id, {})
+    date_key = reg.get("date_key", "")
+    q_index = reg.get("q_index", 0)
+
+    group_answers[uid_str][poll_id] = {
+        "selected": selected_idx,
+        "date_key": date_key,
+        "q_index": q_index,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    save_group_answers()
+
+    if date_key:
+        sync_group_answer_to_api(uid_str, date_key, q_index, poll_id, selected_idx)
+
 def load_group_quiz_posted():
     global group_quiz_posted
     if os.path.exists(GROUP_QUIZ_POSTED_FILE):
@@ -1271,17 +1368,15 @@ def is_group_admin(bot, chat_id, user_id):
 def _make_group_explanation_buttons(date_key, q_index):
     """
     Creates inline keyboard for group quiz questions:
-    - Button 1: Deep-link into bot DM for full explanation
+    - Button 1: Mini App button opening vyasify.in/tg-explain?date={date_key}&q={q_index}
     - Button 2: Link to Vyasify current-affairs page
     """
-    bot_username = "vyasify_quiz_bot"
-    # Encode date + q_index into start param so bot DM can serve exact explanation
-    start_param = f"exp_{date_key}_{q_index}".replace("-", "_")
+    tg_app_url = f"https://vyasify.in/tg-explain?date={date_key}&q={q_index}"
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "💡 View Full Explanation (DM)",
-                url=f"https://t.me/{bot_username}?start={start_param}"
+                "💡 View Full Explanation",
+                web_app=WebAppInfo(url=tg_app_url)
             )
         ],
         [
@@ -1527,6 +1622,22 @@ def serve_group_explanation_dm(update: Update, context: CallbackContext):
         welcome_user(update, context)
         return
 
+    # Expiry Check: explanations stay active until today's cycle begins (9:00 AM IST)
+    current_active_date = get_quiz_date_key()
+    if date_key < current_active_date:
+        context.bot.send_message(
+            chat_id=user.id,
+            text=(
+                f"⏰ <b>This Quiz Has Expired</b>\n\n"
+                f"The explanation window for <b>{date_key}</b> has ended.\n\n"
+                f"👉 <b>Attempt today's questions</b> in the Vyasify group chat, "
+                f"or send <b>Hi</b> here to practice today's test with our live timer!"
+            ),
+            parse_mode=ParseMode.HTML,
+            reply_markup=start_keyboard()
+        )
+        return
+
     # Look up the question from live registry first (fastest)
     q_data = None
     for pid, entry in group_poll_registry.items():
@@ -1610,6 +1721,7 @@ def main():
     load_leaderboard()
     load_users()
     load_group_quiz_posted()
+    load_group_answers()
 
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
