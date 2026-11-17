@@ -595,6 +595,27 @@ def fetch_questions(date_key=None):
                 print(f"[fetch_questions] Fallback to latest available date in sheet: {latest_d} ({len(latest_matches)} questions)")
                 return latest_matches
 
+    # Tier 6: Local daily_quiz.csv fallback for offline/isolated deployments
+    local_csv = os.path.join(os.path.dirname(__file__), "daily_quiz.csv")
+    if os.path.exists(local_csv):
+        try:
+            with open(local_csv, "r", encoding="utf-8-sig") as f:
+                csv_rows = list(csv.DictReader(f))
+                valid_local = []
+                for row in csv_rows:
+                    clean_row = {k.strip(): v for k, v in row.items()}
+                    clean_row["_time"] = default_t
+                    clean_row["option_a"] = clean_row.get("option_a", "").strip() or "Option A"
+                    clean_row["option_b"] = clean_row.get("option_b", "").strip() or "Option B"
+                    clean_row["option_c"] = clean_row.get("option_c", "").strip() or "Option C"
+                    clean_row["option_d"] = clean_row.get("option_d", "").strip() or "Option D"
+                    valid_local.append(clean_row)
+                if valid_local:
+                    print(f"[fetch_questions] Fallback to local {local_csv} ({len(valid_local)} questions)")
+                    return valid_local
+        except Exception as e:
+            print(f"Local daily_quiz.csv fetch error: {e}")
+
     return []
 
 # ================= KEYBOARDS =================
@@ -1574,13 +1595,19 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
     # In channels, polls MUST be anonymous (is_anonymous=True)
     poll_is_anon = True if is_channel else True
 
-    # Announcement header (clean, crisp, no filler text)
+    # Format date nicely: e.g. "17 Nov 2026"
+    try:
+        dt = datetime.strptime(date_key, "%Y-%m-%d")
+        date_display = dt.strftime("%d %b %Y")
+    except Exception:
+        date_display = date_key
+
+    # Announcement header (Merged 2 & 3: Ultra-clean, exam-focused)
     topic = questions[0].get("topic", "Daily Current Affairs") if questions else "Daily Current Affairs"
     header_text = (
-        f"🎯 <b>Vyasify Daily UPSC Prelims Quiz — {date_key}</b>\n\n"
-        f"📌 <b>Topic:</b> {html.escape(topic)}\n"
-        f"📋 <b>Total:</b> {len(questions)} High-Yield Questions\n"
-        f"💡 Tap <i>View Full Explanation</i> under each question for detailed UPSC analysis\n"
+        f"🎯 <b>Vyasify Daily UPSC Prelims Quiz</b> • {date_display}\n\n"
+        f"📌 <b>{html.escape(topic)}</b> • {len(questions)} MCQs (Prelims Standard)\n"
+        f"💡 <i>Tap <b>View Full Explanation</b> under each poll for notes</i>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     header_markup = InlineKeyboardMarkup([
