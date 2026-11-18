@@ -1520,7 +1520,7 @@ def _make_group_explanation_buttons(date_key, q_index):
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "💡 View Full Explanation",
+                "💡 Send Explanation",
                 url=f"https://t.me/vyasify_quiz_bot?start=exp_{clean_date}_{q_index}"
             )
         ]
@@ -1614,7 +1614,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         f"🎯 <b>Vyasify Daily UPSC Prelims Quiz</b> • {date_display}\n\n"
         f"📌 <b>Topic:</b> {html.escape(topic)}\n"
         f"📋 <b>Total:</b> {len(questions)} MCQs\n"
-        f"💡 Tap <i>Explanation</i> under each question to reveal notes\n"
+        f"💡 Tap <i>Send Explanation</i> under each question to get notes in DM\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     header_markup = InlineKeyboardMarkup([
@@ -1669,18 +1669,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         raw_exp_text = q.get('explanation', '') or ''
         clean_exp_formatted = format_question_for_telegram(raw_exp_text) if raw_exp_text else ''
 
-        if clean_exp_formatted:
-            # Ensure total message length fits within Telegram's 4096 character limit
-            if len(clean_q_formatted) + len(clean_exp_formatted) > 3900:
-                clean_exp_formatted = clean_exp_formatted[:3000] + "..."
-            question_post_text = (
-                f"📝 <b>QUESTION {idx+1}</b>\n\n"
-                f"{clean_q_formatted}\n\n"
-                f"💡 <b>Explanation (Tap to reveal):</b>\n"
-                f"<tg-spoiler>{clean_exp_formatted}</tg-spoiler>"
-            )
-        else:
-            question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{clean_q_formatted}"
+        question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{clean_q_formatted}"
 
         try:
             safe_send_message(
@@ -1721,6 +1710,22 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 "q_index": idx,
                 "q": q,
             }
+
+        # Send "💡 Send Explanation" button after each poll so students can get
+        # the full explanation delivered to their DM via the bot (no spoiler in group)
+        try:
+            exp_markup = _make_group_explanation_buttons(date_key, idx)
+            safe_send_message(
+                bot=bot,
+                chat_id=chat_id,
+                text=f"Q{idx+1} — Tap below to receive the full explanation in your DM 👇",
+                parse_mode=ParseMode.HTML,
+                reply_markup=exp_markup,
+                disable_web_page_preview=True
+            )
+        except Exception as btn_err:
+            print(f"[GroupQuiz] Explanation button send error (Q{idx+1}): {btn_err}")
+
         time.sleep(4.0)
 
     # Mark date as posted so auto-scheduler doesn't duplicate (no footer message per user requirement)
