@@ -6,7 +6,7 @@ import html
 import re
 import requests
 from io import StringIO
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 
 try:
     from telegram import (
@@ -156,6 +156,8 @@ DEFAULT_CONFIG = {
     "cycleHour": 9,
     "defaultTimeSeconds": 90,
     "maxQuestions": 10,
+    "weekdayMaxQuestions": 10,
+    "weekendMaxQuestions": 20,
     "correctMark": 2.0,
     "wrongMark": 0.33,
     "negativeRatio": 0.66,
@@ -166,7 +168,7 @@ DEFAULT_CONFIG = {
     "welcomeTopicTemplate": "<blockquote>⭐ Today's Topic: <b>{topic}</b> ❞</blockquote>",
     "welcomeDurationTemplate": "<blockquote>⏳ Time per Question: <b>{duration} Seconds</b></blockquote>",
     "welcomeBullets": [
-        "🔷 Daily 10 questions strictly aligned to UPSC Prelims-oriented topics",
+        "🔷 Daily 10 questions on weekdays | 20 questions on weekends strictly aligned to UPSC Prelims topics",
         "✅ Correct Answer: +{correct_marks} Marks",
         "❌ Negative Marking: -{wrong_marks} Marks",
         "⏭ Skip: 0 Marks",
@@ -274,6 +276,40 @@ def get_quiz_date_key():
         target_date = now.date()
         
     return target_date.isoformat()
+
+def is_weekend_date(target_date=None):
+    """Returns True if the target date is Saturday (5) or Sunday (6)."""
+    if target_date is None:
+        try:
+            return now_ist().weekday() in (5, 6)
+        except Exception:
+            return False
+    if isinstance(target_date, (datetime, date)):
+        return target_date.weekday() in (5, 6)
+    if isinstance(target_date, str):
+        parsed = parse_flexible_date(target_date)
+        if parsed:
+            return parsed.weekday() in (5, 6)
+        try:
+            d = datetime.strptime(target_date.split('T')[0], "%Y-%m-%d").date()
+            return d.weekday() in (5, 6)
+        except Exception:
+            pass
+    try:
+        return now_ist().weekday() in (5, 6)
+    except Exception:
+        return False
+
+def get_target_max_questions(target_date=None, cfg=None):
+    """
+    Returns dynamic question count per official specification:
+    - Weekends (Saturday & Sunday): strictly 20 questions (Mega Revision)
+    - Weekdays (Monday through Friday): strictly 10 questions per day
+    """
+    cfg = cfg or get_bot_config()
+    if is_weekend_date(target_date):
+        return int(cfg.get("weekendMaxQuestions", 20))
+    return int(cfg.get("weekdayMaxQuestions", cfg.get("maxQuestions", 10)))
 
 def normalize_newlines(text):
     """Converts escaped newlines (\n, \r\n) and literal slash-n (/n) into real newline characters."""
@@ -642,11 +678,22 @@ def fetch_questions(date_key=None):
                 for row in csv_rows:
                     clean_row = {k.strip(): v for k, v in row.items()}
                     clean_row["_time"] = default_t
+                    d_parsed = parse_flexible_date(clean_row.get("date"))
+                    if d_parsed:
+                        clean_row["_date_obj"] = d_parsed
                     clean_row["option_a"] = clean_row.get("option_a", "").strip() or "Option A"
                     clean_row["option_b"] = clean_row.get("option_b", "").strip() or "Option B"
                     clean_row["option_c"] = clean_row.get("option_c", "").strip() or "Option C"
                     clean_row["option_d"] = clean_row.get("option_d", "").strip() or "Option D"
                     valid_local.append(clean_row)
+                
+                # Check candidate dates against local rows
+                for c_date in candidate_dates:
+                    matches = [r for r in valid_local if r.get("_date_obj") == c_date]
+                    if matches:
+                        print(f"[fetch_questions] Fallback to local {local_csv} for date {c_date} ({len(matches)} questions)")
+                        return matches
+
                 if valid_local:
                     print(f"[fetch_questions] Fallback to local {local_csv} ({len(valid_local)} questions)")
                     return valid_local
@@ -754,6 +801,11 @@ def welcome_user(update: Update, context: CallbackContext):
     wrong_m_str = str(wrong_m)
     neg_ratio = cfg.get("negativeRatio", 0.66)
 
+    target_d = questions[0].get("_date_obj") if questions else now_ist().date()
+    is_weekend = is_weekend_date(target_d)
+    target_count = get_target_max_questions(target_d, cfg)
+    quiz_label = "Weekend Mega Revision" if is_weekend else "Daily Quiz"
+
     template_vars = {
         "name": clean_text(disp_name),
         "topic": clean_text(topic_name),
@@ -761,6 +813,8 @@ def welcome_user(update: Update, context: CallbackContext):
         "correct_marks": corr_m_str,
         "wrong_marks": wrong_m_str,
         "negative_ratio": neg_ratio,
+        "question_count": target_count,
+        "quiz_type_label": quiz_label,
     }
 
     title = render_template(cfg.get("welcomeTitleTemplate", "📘 Welcome <b>{name}</b> to Vyasify Daily Quiz"), template_vars)
@@ -898,8 +952,9 @@ def start_quiz_session(update: Update, context: CallbackContext):
         if actual_d:
             current_date_key = actual_d.isoformat()
 
-    # Cap max questions if configured
-    max_q = int(cfg.get("maxQuestions", 10))
+    # Cap max questions dynamically: 20 for weekends, 10 for weekdays
+    target_d = questions[0].get("_date_obj") if questions else None
+    max_q = get_target_max_questions(target_d or current_date_key, cfg)
     if max_q and len(questions) > max_q:
         questions = questions[:max_q]
 
@@ -1640,7 +1695,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
     Uses safe rate-limit backoff and retries to guarantee Question 10 and footer never drop.
     """
     cfg = get_bot_config()
-    max_q = int(cfg.get("maxQuestions", 10))
+    max_q = get_target_max_questions(date_key, cfg)
     if len(questions) > max_q:
         questions = questions[:max_q]
 
