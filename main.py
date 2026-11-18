@@ -1566,27 +1566,33 @@ def safe_send_message(bot, chat_id, **kwargs):
     return None
 
 def safe_send_poll(bot, chat_id, **kwargs):
-    """Sends poll with automatic rate-limit backoff and retry."""
+    """Sends poll with automatic rate-limit backoff and retry.
+    Uses a single-attempt approach for the actual send to avoid duplicate polls
+    (a Telegram timeout can cause the poll to actually be sent even if an error is raised).
+    Rate-limit retries only sleep and retry; other errors fail fast after first attempt.
+    """
     max_retries = 4
     for attempt in range(max_retries):
         try:
             return bot.send_poll(chat_id=chat_id, **kwargs)
         except RetryAfter as r_err:
+            # Telegram rate limit — safe to retry, poll was NOT sent
             wait_sec = getattr(r_err, "retry_after", 3) + 1
             print(f"[safe_send_poll] Rate limit hit: sleeping {wait_sec}s (attempt {attempt+1}/{max_retries})...")
             time.sleep(wait_sec)
         except Exception as e:
             err_str = str(e).lower()
             if "retry after" in err_str or "flood" in err_str:
+                # Flood error — safe to retry, poll was NOT sent
                 m = re.search(r'retry after (\d+)', err_str)
                 wait_sec = int(m.group(1)) + 1 if m else 5
                 print(f"[safe_send_poll] Flood error: sleeping {wait_sec}s...")
                 time.sleep(wait_sec)
                 continue
-            if attempt == max_retries - 1:
-                print(f"[safe_send_poll] Failed completely: {e}")
-                raise e
-            time.sleep(1.5)
+            # Any other error (timeout, network etc.) — poll MAY have been sent already.
+            # Do NOT retry to avoid duplicates. Log and return None.
+            print(f"[safe_send_poll] Non-retryable error (not retrying to avoid duplicate): {e}")
+            return None
     return None
 
 def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
