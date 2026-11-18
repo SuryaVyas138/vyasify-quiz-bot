@@ -1634,7 +1634,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         f"🎯 <b>Vyasify Daily UPSC Prelims Quiz</b> • {date_display}\n\n"
         f"📌 <b>Topic:</b> {html.escape(topic)}\n"
         f"📋 <b>Total:</b> {len(questions)} MCQs\n"
-        f"💬 Tap <b>1 comment</b> under each question to read the full explanation\n"
+        f"💬 Tap the <b>Comments</b> button under each question to read the explanation\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     try:
