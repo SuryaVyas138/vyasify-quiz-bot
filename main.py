@@ -1634,21 +1634,14 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         f"🎯 <b>Vyasify Daily UPSC Prelims Quiz</b> • {date_display}\n\n"
         f"📌 <b>Topic:</b> {html.escape(topic)}\n"
         f"📋 <b>Total:</b> {len(questions)} MCQs\n"
-        f"💡 Tap <i>Send Explanation</i> under each question to get notes in DM\n"
+        f"💬 Tap <b>1 comment</b> under each question to read the full explanation\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
-    header_markup = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🏆 View Live Leaderboard", url="https://t.me/vyasify_quiz_bot?start=leaderboard"),
-            InlineKeyboardButton("⚡️ Take Timed Test", url="https://t.me/vyasify_quiz_bot?start=quiz")
-        ]
-    ])
     try:
         safe_send_message(
             bot=bot,
             chat_id=chat_id,
             text=header_text,
-            reply_markup=header_markup,
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True
         )
