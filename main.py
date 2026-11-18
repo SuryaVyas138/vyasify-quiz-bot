@@ -1371,6 +1371,14 @@ group_quiz_posted = {}  # {date_key: True}
 # { poll_id: { "date_key": str, "q_index": int, "q": dict } }
 group_poll_registry = {}
 
+# VyasifyForum discussion group username — bot posts explanation as first comment here
+FORUM_GROUP_USERNAME = "@VyasifyForum"
+
+# Maps channel_message_id -> { q_index, explanation, date_key }
+# Used by forum_forward_handler to reply with explanation when Telegram auto-forwards
+# the channel post into VyasifyForum as a discussion thread
+pending_forum_explanations = {}
+
 GROUP_ANSWERS_FILE = "group_answers.json"
 group_answers = {}  # uid_str -> { poll_id: { selected, date_key, q_index, updated_at } }
 
@@ -1678,13 +1686,21 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{clean_q_formatted}"
 
         try:
-            safe_send_message(
+            q_msg = safe_send_message(
                 bot=bot,
                 chat_id=chat_id,
                 text=question_post_text,
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True
             )
+            # Store mapping so forum_forward_handler can reply with explanation
+            if q_msg and clean_exp_formatted:
+                pending_forum_explanations[q_msg.message_id] = {
+                    "q_index": idx,
+                    "date_key": date_key,
+                    "explanation": clean_exp_formatted,
+                    "q": q,
+                }
             time.sleep(1.0)
         except Exception as q_err:
             print(f"[GroupQuiz] Question statement post error ({idx+1}): {q_err}")
@@ -1716,21 +1732,6 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
                 "q_index": idx,
                 "q": q,
             }
-
-        # Send "💡 Send Explanation" button after each poll so students can get
-        # the full explanation delivered to their DM via the bot (no spoiler in group)
-        try:
-            exp_markup = _make_group_explanation_buttons(date_key, idx)
-            safe_send_message(
-                bot=bot,
-                chat_id=chat_id,
-                text=f"Q{idx+1} — Tap below to receive the full explanation in your DM 👇",
-                parse_mode=ParseMode.HTML,
-                reply_markup=exp_markup,
-                disable_web_page_preview=True
-            )
-        except Exception as btn_err:
-            print(f"[GroupQuiz] Explanation button send error (Q{idx+1}): {btn_err}")
 
         time.sleep(4.0)
 
@@ -2047,6 +2048,75 @@ def hall_of_fame_command_handler(update: Update, context: CallbackContext):
         update.message.reply_text("✅ Hall of Fame post sent successfully!", parse_mode=ParseMode.HTML)
 
 
+# ================= FORUM FORWARD HANDLER =================
+
+def forum_forward_handler(update: Update, context: CallbackContext):
+    """
+    Listens for auto-forwarded channel posts in VyasifyForum (the linked discussion group).
+    When Telegram auto-forwards a channel question post into the forum, this handler:
+      1. Detects it via is_automatic_forward=True (or forward_from_chat matching the channel)
+      2. Looks up the full explanation from pending_forum_explanations using the original channel message_id
+      3. Replies to that forum message with the full explanation as the FIRST COMMENT
+    Students tap "💬 1 comment" on the channel post → see explanation immediately inside Telegram.
+    """
+    msg = update.message
+    if not msg:
+        return
+
+    # Only handle messages in VyasifyForum
+    chat = msg.chat
+    chat_username = getattr(chat, "username", "") or ""
+    if chat_username.lower() != "vyasifyforum":
+        return
+
+    # Detect auto-forwarded channel post (Telegram sets is_automatic_forward=True)
+    is_auto_forward = getattr(msg, "is_automatic_forward", False)
+    forward_from_chat = getattr(msg, "forward_from_chat", None)
+    forward_from_msg_id = getattr(msg, "forward_from_message_id", None)
+
+    if not (is_auto_forward or forward_from_chat):
+        return  # Not a forwarded channel post
+
+    # Match to a pending explanation using the original channel message_id
+    exp_data = None
+    if forward_from_msg_id and forward_from_msg_id in pending_forum_explanations:
+        exp_data = pending_forum_explanations.pop(forward_from_msg_id)
+
+    if not exp_data:
+        return  # No pending explanation for this forwarded post
+
+    q_index = exp_data.get("q_index", 0)
+    explanation = exp_data.get("explanation", "")
+    q_data = exp_data.get("q", {})
+
+    if not explanation:
+        return
+
+    # Build the explanation comment
+    opts = ["A", "B", "C", "D"]
+    correct_idx = extract_correct_option_id(q_data.get("correct_option"))
+    correct_letter = opts[correct_idx] if 0 <= correct_idx <= 3 else "A"
+    correct_text = clean_text(q_data.get(f"option_{correct_letter.lower()}", ""))
+
+    comment_text = (
+        f"✅ <b>Correct Answer:</b> ({correct_letter}) {correct_text}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📖 <b>Explanation:</b>\n{explanation}"
+    )
+
+    try:
+        context.bot.send_message(
+            chat_id=msg.chat_id,
+            text=comment_text,
+            reply_to_message_id=msg.message_id,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+        print(f"[ForumForward] Posted explanation for Q{q_index+1} as comment in VyasifyForum")
+    except Exception as e:
+        print(f"[ForumForward] Failed to post explanation comment for Q{q_index+1}: {e}")
+
+
 # ================= GROUP EXPLANATION DM HANDLER =================
 
 def serve_group_explanation_dm(update: Update, context: CallbackContext):
@@ -2213,6 +2283,10 @@ def main():
         print(f"[Setup] Channel post handler registration note: {chan_err}")
 
     dp.add_handler(CallbackQueryHandler(button_handler))
+
+    # VyasifyForum listener: auto-posts explanation as first comment when channel
+    # posts are forwarded into the forum discussion group
+    dp.add_handler(MessageHandler(Filters.all, forum_forward_handler), group=2)
 
     # Register visible bot commands in Telegram UI
     try:
