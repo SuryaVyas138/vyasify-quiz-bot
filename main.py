@@ -1523,6 +1523,12 @@ def _make_group_explanation_buttons(date_key, q_index):
                 "💡 Send Explanation",
                 url=f"https://t.me/vyasify_quiz_bot?start=exp_{clean_date}_{q_index}"
             )
+        ],
+        [
+            InlineKeyboardButton(
+                "📖 Explore Daily Current Affairs",
+                url="https://vyasify.in/current-affairs"
+            )
         ]
     ])
 
