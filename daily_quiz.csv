@@ -1,69 +1,277 @@
 ﻿date,question,option_a,option_b,option_c,option_d,correct_option,explanation,source
-17-11-2026,"Statement-I: When the Reserve Bank of India introduces an Incremental Cash Reserve Ratio (I-CRR), short-term interbank call money lending rates generally rise.
-Statement-II: Under Section 42 of the Reserve Bank of India Act, 1934, impounding bank reserves through the Cash Reserve Ratio directly locks away loanable cash from banks without needing to change the policy Repo rate.
-Which one of the following is correct in respect of the above statements?","Both Statement-I and II are correct, and II is the correct explanation","Both Statement-I and II are correct, but II is not the correct explanation","Statement-I is correct, but Statement-II is incorrect","Statement-I is incorrect, but Statement-II is correct",A,"Both Statement-I and Statement-II are factually correct, and Statement-II correctly explains Statement-I. When the RBI freezes bank reserves under Section 42 of the RBI Act 1934, banks face a contraction in lendable cash. This increases competition to borrow overnight funds in the interbank market, pulling short-term call money rates higher.",Reserve Bank of India Act 1934
-17-11-2026,"Read the following characteristics of a protected area in India:
-1. It is situated at the tri-junction of Tamil Nadu, Kerala, and Karnataka as part of the Nilgiri Biosphere Reserve.
-2. The river Kabini separates it from the Bandipur National Park to its north.
-3. It holds the largest recorded contiguous population of Asiatic Elephants in the world.
-Which one of the following protected areas is described above?",Wayanad Wildlife Sanctuary,Silent Valley National Park,Mudumalai Tiger Reserve,Periyar Tiger Reserve,A,"Wayanad Wildlife Sanctuary in Kerala is an integral part of the Nilgiri Biosphere Reserve. It is bounded by the Nagarhole and Bandipur National Parks of Karnataka to the northeast and Mudumalai to the southeast, with the river Kabini (a tributary of Cauvery) flowing through the landscape. It harbors the largest elephant population in South Asia.","Ministry of Environment, Forest and Climate Change"
+17-11-2026,"Statement-I: When the Reserve Bank of India introduces an Incremental Cash Reserve Ratio (I-CRR), short-term interbank call money lending rates generally rise toward the upper end of the policy corridor.
+Statement-II: Under Section 42 of the Reserve Bank of India Act, 1934, impounding bank reserves through the Cash Reserve Ratio directly locks away loanable cash from commercial banks without needing to change the policy Repo rate.
+Which one of the following is correct in respect of the above statements?","Both Statement-I and II are correct, and II is the correct explanation","Both Statement-I and II are correct, but II is not the correct explanation","Statement-I is correct, but Statement-II is incorrect","Statement-I is incorrect, but Statement-II is correct",A,"📘 Core Concept: The Cash Reserve Ratio (CRR) is the percentage of customer deposits commercial banks must keep parked with the RBI in cash. An Incremental CRR is a temporary mop-up tool to absorb sudden liquidity surges.
+
+🔍 Option-by-Option Breakdown:
+- Statement-I is CORRECT: When the RBI impounds banks spare cash, banks have less surplus money to lend overnight. High borrowing demand among cash-strapped banks drives up the overnight interbank call money interest rate.
+- Statement-II is CORRECT: Section 42(1) of the RBI Act 1934 legally mandates CRR. It contracts loanable cash directly without touching the policy Repo rate.
+- Statement-II directly explains Statement-I, making Option A correct.
+
+📊 Latest 2025–2026 Benchmark: The RBI operates liquidity management within the Liquidity Adjustment Facility (LAF) corridor, using the Standing Deposit Facility (SDF) as the floor and Marginal Standing Facility (MSF) as the ceiling.
+
+⚠️ UPSC Exam Trap: UPSC frequently swaps the RBI Act 1934 with the Banking Regulation Act 1949. Statutory reserve requirements (CRR) are under the RBI Act, whereas SLR is under Section 24 of the Banking Regulation Act.",Reserve Bank of India Act 1934
+17-11-2026,"Which among the following constitutional and statutory provisions govern the Finance Commission of India?
+1. Article 280 mandates the President to constitute a Finance Commission at the expiration of every fifth year or earlier.
+2. The qualifications requisite for appointment as members are determined directly by Parliament by law.
+3. Recommendations made regarding the devolution of divisible tax proceeds are legally binding on the Union Government.
+Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",A,"📘 Core Concept: The Finance Commission is a constitutional quasi-judicial body balancing vertical and horizontal fiscal federalism between the Centre and States.
+
+🔍 Option-by-Option Breakdown:
+- Statement 1 is CORRECT: Under Article 280(1), the President constitutes the Commission every fifth year or earlier.
+- Statement 2 is CORRECT: Article 280(2) empowers Parliament to enact qualifications (Finance Commission Act, 1951).
+- Statement 3 is INCORRECT: Article 281 makes it clear that the recommendations are purely advisory and not legally binding, though conventionally accepted.
+- Therefore, Statements 1 and 2 only are correct, making Option A correct.
+
+📊 Latest 2025–2026 Benchmark: The 16th Finance Commission, chaired by Dr. Arvind Panagariya, was tasked with formulating tax devolution formulas for the award period 2026–2031.
+
+⚠️ UPSC Exam Trap: UPSC loves testing binding vs advisory nature. Recommendations of the Finance Commission, Law Commission, and UPSC are advisory, NOT legally binding.","Constitution of India, Art. 280"
 17-11-2026,"Which among the following major reforms were enacted under the Wildlife (Protection) Amendment Act, 2022?
-1. Rationalisation of wildlife schedules by reducing the total number from six to four
-2. Domestication of the CITES convention by creating a dedicated Schedule IV for listed international species
-3. Complete repeal of statutory provisions allowing the Central Government to notify wild animals as vermin
-Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",A,"Statements 1 and 2 are correct. Statement 3 is incorrect: the 2022 amendment removed the old Schedule V list of vermin, but the Central Government retains statutory power under Section 62 to notify specified wild animals (other than Schedule I) as vermin for a limited area and duration.",Wildlife Protection Act 1972
-17-11-2026,"Which one of the following terms best describes a computer hardware architecture where microchips mimic the physical structure of biological brains, combining memory and processing together and transmitting data through tiny electrical pulses called spikes, using very little power?",Quantum Annealing,Neuromorphic Computing,Optical Photonic Computing,Lattice-Based Cryptography,B,"Neuromorphic computing refers to hardware engineered to emulate biological neural networks. Unlike standard computers where memory and processors are separate, neuromorphic chips integrate memory and computation, firing brief electrical spikes to run artificial intelligence on ultra-low power.",Emerging Science & Technology
-17-11-2026,"With regard to agricultural price policy and the determination of Minimum Support Prices (MSP) in India, which one of the following statements is NOT correct?",CACP recommends MSPs for 22 mandated crops and fair price for sugarcane,Government guarantees MSP at minimum 50% above comprehensive cost (C2),A2 cost formula includes all direct cash expenses on inputs and hired labor,Final MSP announcement decision is taken by the Cabinet Committee (CCEA),B,"Statement B is not correct (and therefore the answer). Government policy guarantees a return of at least 50% over production costs defined as A2+FL (direct expenses plus unpaid family labor), NOT over the higher comprehensive cost C2 (which additionally includes rent on owned land and interest on capital).",CACP & Union Budget
-17-11-2026,"If the Reserve Bank of India decides to adopt a contractionary monetary policy to rein in stubborn domestic retail inflation, which one of the following actions would it NOT do?",Increase the policy Repo rate under the Liquidity Adjustment Facility,Conduct Open Market Operations to purchase government securities from banks,Increase the Standing Deposit Facility rate,Raise the Cash Reserve Ratio required from scheduled commercial banks,B,"Action B is what the RBI would NOT do (and therefore the answer). Purchasing government securities injects fresh liquidity into the banking system, which is an expansionary action that stimulates borrowing. In a contractionary policy, the RBI sells securities to absorb liquidity.",Reserve Bank of India Operations
-17-11-2026,"Which among the following constitutional and statutory provisions govern the delimitation of parliamentary constituencies in India?
-1. Article 82 mandates Parliament to enact a Delimitation Act after every decennial census.
-2. Delimitation Commission orders acquire the force of law and cannot be questioned in any court under Article 329(a).
-3. The 84th Constitutional Amendment Act froze inter-state Lok Sabha seat allocations until post-2026.
-Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",D,"All three statements are correct. Article 82 provides for readjustment of seat allocations by law enacted by Parliament. Under Section 10(2) of the Delimitation Act and Article 329(a), commission orders have the force of law and cannot be questioned in any court. The 84th Amendment froze inter-state seat counts based on the 1971 census until post-2026.",Constitution of India
+1. The total number of wildlife protection schedules was rationalized from six down to four.
+2. A dedicated schedule was introduced to implement the CITES convention on endangered trade.
+3. The schedule classifying vermin species was completely eliminated.
+Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",D,"📘 Core Concept: The Wildlife (Protection) Act, 1972 is India's principal statute for preserving wild animal, bird, and plant species. The 2022 amendment fundamentally overhauled its schedule structure.
+
+🔍 Option-by-Option Breakdown:
+- Statement 1 is CORRECT: Schedules were consolidated from 6 to 4 (Schedule I: Highest protection, Schedule II: Lesser protection, Schedule III: Protected plants, Schedule IV: CITES specimens).
+- Statement 2 is CORRECT: Schedule IV was specifically inserted to enforce CITES international trade restrictions.
+- Statement 3 is CORRECT: Former Schedule V (vermin) was omitted. The Union government now declares vermin through specific notifications.
+- All three statements are correct, making Option D correct.
+
+📊 Latest 2025–2026 Benchmark: Over 100+ native Indian species received upgraded protections under the revised CITES Appendix listings following CoP19/CoP20 decisions.
+
+⚠️ UPSC Exam Trap: Candidates often falsely assume vermin can still be found in Schedule V. The vermin schedule no longer exists in Indian law.",Wildlife (Protection) Amendment Act 2022
+17-11-2026,"Statement-I: A sustained rise in India's Real Effective Exchange Rate (REER) indicates an appreciation of the Indian Rupee against trading partners, which tends to reduce export competitiveness.
+Statement-II: The Real Effective Exchange Rate is calculated as the weighted average of nominal exchange rates adjusted for relative domestic and foreign inflation differentials.
+Which one of the following is correct in respect of the above statements?","Both Statement-I and II are correct, and II is the correct explanation","Both Statement-I and II are correct, but II is not the correct explanation","Statement-I is correct, but Statement-II is incorrect","Statement-I is incorrect, but Statement-II is correct",A,"📘 Core Concept: The Real Effective Exchange Rate (REER) measures the external purchasing power of a nation's currency against a basket of currencies, stripped of inflation distortions.
+
+🔍 Option-by-Option Breakdown:
+- Statement-I is CORRECT: When REER rises above 100, domestic goods become relatively more expensive abroad, dampening price competitiveness for exporters.
+- Statement-II is CORRECT: REER adjusts the Nominal Effective Exchange Rate (NEER) by multiplying it by the ratio of domestic price levels to foreign trading partner price levels.
+- Statement-II provides the direct mathematical and economic explanation for why higher domestic inflation erodes export edge, making Option A correct.
+
+📊 Latest 2025–2026 Benchmark: The RBI calculates and publishes 40-currency trade-weighted NEER and REER indices on its official statistical database with base year 2015–16.
+
+⚠️ UPSC Exam Trap: UPSC often inverts the relationship: a depreciating Rupee improves export price competitiveness, while an appreciating REER worsens it.",Reserve Bank of India Bulletin
+17-11-2026,"Which one of the following terms best describes a computer hardware architecture where memory storage and computing logic processing are performed inside the same physical unit, eliminating the classic von Neumann data bus bottleneck?",In-Memory Computing,Quantum Teleportation,Optical Fibre Multiplexing,Homomorphic Cloud Encryption,A,"📘 Core Concept: In traditional von Neumann architectures, memory (RAM) and the central processing unit (CPU) are separated by a physical bus. Constantly shuttling data back and forth consumes massive electricity and slows down artificial intelligence computations (von Neumann bottleneck).
+
+🔍 Option-by-Option Breakdown:
+- Option A (In-Memory Computing) is CORRECT: By integrating processing logic directly within memory cells (e.g. using memristors or ReRAM), calculations occur where data lives, enabling ultra-fast AI edge processing.
+- Option B is INCORRECT: Quantum teleportation transfers quantum states between qubits using entanglement, not silicon memory architectures.
+- Option C is INCORRECT: Optical multiplexing merges multiple light signals onto a single fibre cable.
+- Option D is INCORRECT: Homomorphic encryption allows mathematical computations directly on encrypted ciphertext without decrypting it first.
+
+📊 Latest 2025–2026 Benchmark: India's National Semiconductor Mission (ISM) has funded advanced packaging and neuromorphic silicon pilot projects to advance next-generation memory tech.
+
+⚠️ UPSC Exam Trap: UPSC regularly asks definitional MCQs on emerging tech terms seen in news (e.g. Spintronics, Memristors, Neuromorphic chips).",Science & Tech Frontier Architecture
+17-11-2026,"With regard to agricultural price policy and the determination of Minimum Support Prices (MSP) in India, examine the following clauses:
+1. The Commission for Agricultural Costs and Prices (CACP) is a statutory authority established under the Essential Commodities Act, 1955.
+2. The A2+FL cost formula includes paid-out expenses plus the imputed value of unpaid family labor.
+3. The final approval for announcing MSP for mandated agricultural crops is granted by the Cabinet Committee on Economic Affairs (CCEA).
+Which of the statements given above are correct?",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",B,"📘 Core Concept: Minimum Support Price (MSP) acts as a price guarantee safety net to protect farmers from sharp harvest price crashes across 22 mandated crops plus FRP for sugarcane.
+
+🔍 Option-by-Option Breakdown:
+- Statement 1 is INCORRECT: CACP is an attached office of the Ministry of Agriculture and Farmers Welfare created by an executive resolution in 1965, NOT a statutory body under the Essential Commodities Act.
+- Statement 2 is CORRECT: The A2+FL cost covers all cash expenditures (seeds, fertilizer, fuel) plus the imputed economic value of unpaid family farm labor.
+- Statement 3 is CORRECT: CACP only recommends MSPs. The final binding decision is taken by the Cabinet Committee on Economic Affairs (CCEA) chaired by the Prime Minister.
+- Statements 2 and 3 are correct, making Option B correct.
+
+📊 Latest 2025–2026 Benchmark: Government policy maintains MSP at a minimum of 1.5 times the nationwide weighted average cost of production (A2+FL formula).
+
+⚠️ UPSC Exam Trap: UPSC routinely asserts that CACP or NITI Aayog is a statutory body. CACP is an executive advisory body.",Ministry of Agriculture & Farmers Welfare
+17-11-2026,"Which among the following constitutional and statutory provisions govern the Delimitation Commission of India?
+1. Article 82 provides for the readjustment of allocation of Lok Sabha seats after each census by an authority determined by Parliament.
+2. Orders issued by the Delimitation Commission have the full force of law and cannot be called into question before any court of law.
+3. The Delimitation Commission is headed ex-officio by the Chief Election Commissioner of India.
+Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",A,"📘 Core Concept: Delimitation is the statutory process of redrawing electoral constituency boundaries to reflect population shifts recorded during census enumerations.
+
+🔍 Option-by-Option Breakdown:
+- Statement 1 is CORRECT: Article 82 empowers Parliament to enact a Delimitation Act to readjust parliamentary constituencies following every census.
+- Statement 2 is CORRECT: Under Article 329(a) and the Delimitation Act, orders published in the Gazette of India cannot be challenged in any court.
+- Statement 3 is INCORRECT: The Delimitation Commission is chaired by a retired Supreme Court Judge, NOT the Chief Election Commissioner (the CEC is an ex-officio member, not chairperson).
+- Therefore, Statements 1 and 2 only are correct, making Option A correct.
+
+📊 Latest 2025–2026 Benchmark: The 84th Constitutional Amendment Act froze the total number of parliamentary seats across States until the first census taken after the year 2026.
+
+⚠️ UPSC Exam Trap: Swapping the Commission Chairperson (Retired SC Judge) with an ex-officio member (CEC) is a classic UPSC exam trap.","Constitution of India, Art. 82 & 329"
 17-11-2026,"Match the following strategic straits with the water bodies they connect:
-1. Bab-el-Mandeb : Red Sea and Gulf of Aden
-2. Sunda Strait : Java Sea and Indian Ocean
-3. Kerch Strait : Black Sea and Sea of Azov
-4. Strait of Hormuz : Persian Gulf and Red Sea
-How many of the above pairs are correctly matched?",Only one pair,Only two pairs,Only three pairs,All four pairs,C,"Pairs 1, 2, and 3 are correctly matched. Pair 4 is incorrect: the Strait of Hormuz connects the Persian Gulf with the Gulf of Oman (leading to the Arabian Sea), NOT the Red Sea (which connects to the Gulf of Aden via Bab-el-Mandeb).",UPSC Prelims Geography
+1. Strait of Hormuz : Persian Gulf and Gulf of Oman
+2. Bab-el-Mandeb : Red Sea and Gulf of Aden
+3. Strait of Malacca : Andaman Sea and South China Sea
+4. Bosphorus Strait : Black Sea and Sea of Marmara
+How many of the above pairs are correctly matched?",Only one pair,Only two pairs,Only three pairs,All four pairs,D,"📘 Core Concept: Maritime straits are geostrategic pinch points governing international trade, naval mobility, and commercial oil tanker corridors.
+
+🔍 Option-by-Option Breakdown:
+- Pair 1 is CORRECT: Hormuz links the Persian Gulf to the Gulf of Oman, carrying over 20% of global oil shipments.
+- Pair 2 is CORRECT: Bab-el-Mandeb links the Red Sea with the Gulf of Aden, acting as the maritime gate to the Suez Canal.
+- Pair 3 is CORRECT: Malacca links the Indian Ocean (Andaman Sea) with the Pacific Ocean (South China Sea).
+- Pair 4 is CORRECT: Bosphorus in Istanbul links the Black Sea to the Sea of Marmara, providing Russia and Black Sea nations access to the Mediterranean.
+- All four pairs are correctly matched, making Option D correct.
+
+📊 Latest 2025–2026 Benchmark: Heightened regional maritime security operations in the Red Sea and Gulf of Aden under Operation Prosperity Guardian and Indian Navy maritime security deployments.
+
+⚠️ UPSC Exam Trap: Non-elimination format options (Only one, Only two...) prevent solving by guessing. Every pair must be verified independently.",UPSC Prelims Geography
 17-11-2026,"Match the following Ashokan Rock Inscriptions with their modern State locations:
 1. Kalsi : Uttarakhand
 2. Dhauli : Odisha
 3. Erragudi : Andhra Pradesh
 4. Sannati : Karnataka
-How many of the above pairs are correctly matched?",Only one pair,Only two pairs,Only three pairs,All four pairs,D,"All four pairs are correctly matched. Kalsi Major Rock Edict is in Dehradun, Uttarakhand; Dhauli is near Bhubaneswar in Odisha; Erragudi is in Kurnool, Andhra Pradesh; and Sannati is on the banks of Bhima river in Kalaburagi, Karnataka.",UPSC Ancient History
-17-11-2026,Which one of the following international legal instruments establishes a multilateral mechanism for designating Marine Protected Areas in international waters beyond national Exclusive Economic Zones (EEZ)?,The High Seas Treaty (BBNJ Agreement) under UNCLOS,The Nairobi International Convention on Shipwrecks,The MARPOL Convention Annex VI Guidelines,The London Protocol on Marine Waste Dumping,A,"The BBNJ Agreement (popularly known as the High Seas Treaty) under the UN Convention on the Law of the Sea provides the first comprehensive multilateral framework for Area-Based Management Tools (ABMTs), including Marine Protected Areas (MPAs) in international waters beyond the 200-nautical-mile EEZ of coastal states.",UNCLOS & International Law
-18-11-2026,"Statement-I: When the Reserve Bank of India introduces an Incremental Cash Reserve Ratio (I-CRR), short-term interbank call money lending rates generally rise.
-Statement-II: Under Section 42 of the Reserve Bank of India Act, 1934, impounding bank reserves through the Cash Reserve Ratio directly locks away loanable cash from banks without needing to change the policy Repo rate.
-Which one of the following is correct in respect of the above statements?","Both Statement-I and II are correct, and II is the correct explanation","Both Statement-I and II are correct, but II is not the correct explanation","Statement-I is correct, but Statement-II is incorrect","Statement-I is incorrect, but Statement-II is correct",A,"Both Statement-I and Statement-II are factually correct, and Statement-II correctly explains Statement-I. When the RBI freezes bank reserves under Section 42 of the RBI Act 1934, banks face a contraction in lendable cash. This increases competition to borrow overnight funds in the interbank market, pulling short-term call money rates higher.",Reserve Bank of India Act 1934
+How many of the above pairs are correctly matched?",Only one pair,Only two pairs,Only three pairs,All four pairs,D,"📘 Core Concept: Emperor Ashoka of the Mauryan Empire inscribed royal edicts on natural rock faces and polished sandstone pillars across the Indian subcontinent in Prakrit, Greek, and Aramaic scripts to propagate Dhamma.
+
+🔍 Option-by-Option Breakdown:
+- Pair 1 is CORRECT: Kalsi is situated on the banks of the Yamuna river in Dehradun district, Uttarakhand. It contains Major Rock Edicts 1 to 14 in the Brahmi script.
+- Pair 2 is CORRECT: Dhauli is near Bhubaneswar in Odisha, famous for Ashokas Separate Kalinga Rock Edicts and the carved elephant sculpture.
+- Pair 3 is CORRECT: Erragudi (Yerragudi) is located in Kurnool district, Andhra Pradesh, containing both Major and Minor Rock Edicts written from right to left in certain sections (Boustrophedon style).
+- Pair 4 is CORRECT: Sannati on the banks of the Bhima river in Kalaburagi, Karnataka, is renowned for the Kanaganahalli stupa complex featuring Ashokan edicts and a portrait sculpture inscribed Ranyo Ashoka.
+- All four pairs are correctly matched, making Option D correct.
+
+📊 Latest 2025–2026 Benchmark: The Archaeological Survey of India (ASI) has undertaken major 3D laser-scanning preservation of the Kanaganahalli and Kalsi inscriptional complexes.
+
+⚠️ UPSC Exam Trap: UPSC frequently mixes up Ashokan sites across southern states (e.g. claiming Erragudi is in Karnataka or Maski is in Andhra Pradesh).",UPSC Ancient History
+17-11-2026,Which one of the following international legal instruments establishes a multilateral mechanism for designating Marine Protected Areas in international waters beyond national Exclusive Economic Zones (EEZ)?,The High Seas Treaty (BBNJ Agreement) under UNCLOS,The Nairobi International Convention on Shipwrecks,The MARPOL Convention Annex VI Guidelines,The London Protocol on Marine Waste Dumping,A,"📘 Core Concept: The High Seas cover nearly two-thirds of the global ocean, but have historically lacked a unified, binding legal framework to conserve marine biodiversity in waters outside any countrys sovereign jurisdiction.
+
+🔍 Option-by-Option Breakdown:
+- Option A (BBNJ Agreement) is CORRECT: Adopted under the United Nations Convention on the Law of the Sea (UNCLOS), the Agreement on the Conservation and Sustainable Use of Marine Biological Diversity of Areas Beyond National Jurisdiction (BBNJ) establishes the first legal mechanism to create Marine Protected Areas (MPAs) in the High Seas and share Marine Genetic Resources (MGRs).
+- Option B is INCORRECT: The Nairobi Convention under the IMO governs the removal of hazardous shipwrecks in coastal sea lanes.
+- Option C is INCORRECT: MARPOL Annex VI regulates air pollution emissions (sulfur and nitrogen oxides) from commercial maritime vessels.
+- Option D is INCORRECT: The London Protocol regulates the dumping of industrial wastes and other matter from ships at sea.
+
+📊 Latest 2025–2026 Benchmark: India signed and initiated formal ratification of the BBNJ Agreement, aligning with the global Kunming-Montreal Global Biodiversity Framework target to protect 30% of marine ecosystems by 2030 (30x30 Target).
+
+⚠️ UPSC Exam Trap: Under UNCLOS Article 56, coastal states have sovereign rights only within their 200-nautical-mile EEZ. The Area (seabed beyond national jurisdiction) is designated the Common Heritage of Mankind under Part XI of UNCLOS.",UNCLOS & International Law
+18-11-2026,"Statement-I: The Aditya-L1 solar observatory operates from a halo orbit around the first Lagrangian point (L1) of the Sun-Earth system, providing an uninterrupted view of the Sun without any occultation or eclipses.
+Statement-II: At the L1 Lagrangian point, the gravitational forces of the Sun and the Earth equal the centripetal force required for a spacecraft to move synchronously with the Earth around the Sun.
+Which one of the following is correct in respect of the above statements?","Both Statement-I and II are correct, and II is the correct explanation","Both Statement-I and II are correct, but II is not the correct explanation","Statement-I is correct, but Statement-II is incorrect","Statement-I is incorrect, but Statement-II is correct",A,"📘 Core Concept: In celestial mechanics, Lagrangian points are equilibrium positions in a two-body orbital system where gravitational attractions and centripetal forces precisely balance.
+
+🔍 Option-by-Option Breakdown:
+- Statement-I is CORRECT: Aditya-L1 is inserted into a halo orbit around L1 (approx 1.5 million km from Earth toward the Sun). It enjoys an unhindered, continuous view of solar dynamics without planetary eclipses.
+- Statement-II is CORRECT: At L1, the combined gravitational pull of the Sun and Earth matches the centripetal force needed for an object to orbit the Sun with the exact same orbital period as Earth (365.25 days).
+- Statement-II establishes the underlying orbital physics explaining why Aditya-L1 stays stationary relative to Earth, making Option A correct.
+
+📊 Latest 2025–2026 Benchmark: Payloads including the Visible Emission Line Coronagraph (VELC) and Solar Ultraviolet Imaging Telescope (SUIT) have transmitted continuous real-time coronal mass ejection (CME) tracking data.
+
+⚠️ UPSC Exam Trap: UPSC frequently confuses L1 (between Earth and Sun) with L2 (behind Earth, where deep space telescopes like James Webb reside).",ISRO Aditya-L1 Mission & Celestial Physics
 18-11-2026,"Read the following characteristics of a protected area in India:
-1. It is situated at the tri-junction of Tamil Nadu, Kerala, and Karnataka as part of the Nilgiri Biosphere Reserve.
-2. The river Kabini separates it from the Bandipur National Park to its north.
-3. It holds the largest recorded contiguous population of Asiatic Elephants in the world.
-Which one of the following protected areas is described above?",Wayanad Wildlife Sanctuary,Silent Valley National Park,Mudumalai Tiger Reserve,Periyar Tiger Reserve,A,"Wayanad Wildlife Sanctuary in Kerala is an integral part of the Nilgiri Biosphere Reserve. It is bounded by the Nagarhole and Bandipur National Parks of Karnataka to the northeast and Mudumalai to the southeast, with the river Kabini (a tributary of Cauvery) flowing through the landscape. It harbors the largest elephant population in South Asia.","Ministry of Environment, Forest and Climate Change"
-18-11-2026,"Which among the following major reforms were enacted under the Wildlife (Protection) Amendment Act, 2022?
-1. Rationalisation of wildlife schedules by reducing the total number from six to four
-2. Domestication of the CITES convention by creating a dedicated Schedule IV for listed international species
-3. Complete repeal of statutory provisions allowing the Central Government to notify wild animals as vermin
-Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",A,"Statements 1 and 2 are correct. Statement 3 is incorrect: the 2022 amendment removed the old Schedule V list of vermin, but the Central Government retains statutory power under Section 62 to notify specified wild animals (other than Schedule I) as vermin for a limited area and duration.",Wildlife Protection Act 1972
-18-11-2026,"Which one of the following terms best describes a computer hardware architecture where microchips mimic the physical structure of biological brains, combining memory and processing together and transmitting data through tiny electrical pulses called spikes, using very little power?",Quantum Annealing,Neuromorphic Computing,Optical Photonic Computing,Lattice-Based Cryptography,B,"Neuromorphic computing refers to hardware engineered to emulate biological neural networks. Unlike standard computers where memory and processors are separate, neuromorphic chips integrate memory and computation, firing brief electrical spikes to run artificial intelligence on ultra-low power.",Emerging Science & Technology
-18-11-2026,"With regard to agricultural price policy and the determination of Minimum Support Prices (MSP) in India, which one of the following statements is NOT correct?",CACP recommends MSPs for 22 mandated crops and fair price for sugarcane,Government guarantees MSP at minimum 50% above comprehensive cost (C2),A2 cost formula includes all direct cash expenses on inputs and hired labor,Final MSP announcement decision is taken by the Cabinet Committee (CCEA),B,"Statement B is not correct (and therefore the answer). Government policy guarantees a return of at least 50% over production costs defined as A2+FL (direct expenses plus unpaid family labor), NOT over the higher comprehensive cost C2 (which additionally includes rent on owned land and interest on capital).",CACP & Union Budget
-18-11-2026,"If the Reserve Bank of India decides to adopt a contractionary monetary policy to rein in stubborn domestic retail inflation, which one of the following actions would it NOT do?",Increase the policy Repo rate under the Liquidity Adjustment Facility,Conduct Open Market Operations to purchase government securities from banks,Increase the Standing Deposit Facility rate,Raise the Cash Reserve Ratio required from scheduled commercial banks,B,"Action B is what the RBI would NOT do (and therefore the answer). Purchasing government securities injects fresh liquidity into the banking system, which is an expansionary action that stimulates borrowing. In a contractionary policy, the RBI sells securities to absorb liquidity.",Reserve Bank of India Operations
-18-11-2026,"Which among the following constitutional and statutory provisions govern the delimitation of parliamentary constituencies in India?
-1. Article 82 mandates Parliament to enact a Delimitation Act after every decennial census.
-2. Delimitation Commission orders acquire the force of law and cannot be questioned in any court under Article 329(a).
-3. The 84th Constitutional Amendment Act froze inter-state Lok Sabha seat allocations until post-2026.
-Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",D,"All three statements are correct. Article 82 provides for readjustment of seat allocations by law enacted by Parliament. Under Section 10(2) of the Delimitation Act and Article 329(a), commission orders have the force of law and cannot be questioned in any court. The 84th Amendment froze inter-state seat counts based on the 1971 census until post-2026.",Constitution of India
-18-11-2026,"Match the following strategic straits with the water bodies they connect:
-1. Bab-el-Mandeb : Red Sea and Gulf of Aden
-2. Sunda Strait : Java Sea and Indian Ocean
-3. Kerch Strait : Black Sea and Sea of Azov
-4. Strait of Hormuz : Persian Gulf and Red Sea
-How many of the above pairs are correctly matched?",Only one pair,Only two pairs,Only three pairs,All four pairs,C,"Pairs 1, 2, and 3 are correctly matched. Pair 4 is incorrect: the Strait of Hormuz connects the Persian Gulf with the Gulf of Oman (leading to the Arabian Sea), NOT the Red Sea (which connects to the Gulf of Aden via Bab-el-Mandeb).",UPSC Prelims Geography
-18-11-2026,"Match the following Ashokan Rock Inscriptions with their modern State locations:
-1. Kalsi : Uttarakhand
-2. Dhauli : Odisha
-3. Erragudi : Andhra Pradesh
-4. Sannati : Karnataka
-How many of the above pairs are correctly matched?",Only one pair,Only two pairs,Only three pairs,All four pairs,D,"All four pairs are correctly matched. Kalsi Major Rock Edict is in Dehradun, Uttarakhand; Dhauli is near Bhubaneswar in Odisha; Erragudi is in Kurnool, Andhra Pradesh; and Sannati is on the banks of Bhima river in Kalaburagi, Karnataka.",UPSC Ancient History
-18-11-2026,Which one of the following international legal instruments establishes a multilateral mechanism for designating Marine Protected Areas in international waters beyond national Exclusive Economic Zones (EEZ)?,The High Seas Treaty (BBNJ Agreement) under UNCLOS,The Nairobi International Convention on Shipwrecks,The MARPOL Convention Annex VI Guidelines,The London Protocol on Marine Waste Dumping,A,"The BBNJ Agreement (popularly known as the High Seas Treaty) under the UN Convention on the Law of the Sea provides the first comprehensive multilateral framework for Area-Based Management Tools (ABMTs), including Marine Protected Areas (MPAs) in international waters beyond the 200-nautical-mile EEZ of coastal states.",UNCLOS & International Law
+1. It is situated in the Indo-Burma biodiversity hotspot and is recognized as India's easternmost national park.
+2. It holds the unique distinction of harboring all four large cat species: Tiger, Leopard, Snow Leopard, and Clouded Leopard.
+3. The Noa-Dihing River, a major southern tributary of the Brahmaputra, flows through its landscape.
+Which one of the following protected areas is described above?",Namdapha National Park,Dibru-Saikhowa National Park,Mouling National Park,Kaziranga National Park,A,"📘 Core Concept: Reverse entity deduction is a hallmark UPSC Prelims format, testing comprehensive geographical, ecological, and riverine knowledge of protected areas.
+
+🔍 Option-by-Option Breakdown:
+- Option A (Namdapha National Park) is CORRECT: Located in the Changlang district of Arunachal Pradesh near the Myanmar border, Namdapha spans an elevation range from 200m to over 4,500m. It is India's easternmost national park, drained by the Noa-Dihing river, and famously hosts four big cats: Tiger, Common Leopard, Clouded Leopard, and Snow Leopard.
+- Option B is INCORRECT: Dibru-Saikhowa is a river-island biosphere reserve in Assam bounded by the Brahmaputra and Lohit rivers, renowned for feral horses.
+- Option C is INCORRECT: Mouling National Park is in the Upper Siang district of Arunachal Pradesh, drained by the Siyom river.
+- Option D is INCORRECT: Kaziranga is in the floodplains of Assam, famous for the Greater One-Horned Rhinoceros.
+
+📊 Latest 2025–2026 Benchmark: Comprehensive camera trapping surveys by the Forest Department confirmed stable habitat integrity for endangered hornbills and clouded leopards.
+
+⚠️ UPSC Exam Trap: Candidates often confuse Namdapha with Mouling or Pakke Tiger Reserve. Only Namdapha possesses the elevation gradient supporting both tropical Clouded Leopards and alpine Snow Leopards.","Ministry of Environment, Forest and Climate Change"
+18-11-2026,"Which among the following constitutional options are available to the Governor of a State upon receiving a Bill passed by the State Legislature under Article 200 of the Constitution of India?
+1. The Governor may declare assent to the Bill or withhold assent therefrom.
+2. The Governor may reserve the Bill for the consideration of the President.
+3. If a non-Money Bill is returned for reconsideration and passed again by the House, the Governor cannot withhold assent.
+Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",D,"📘 Core Concept: Article 200 of the Constitution delineates the legislative assent powers of the Governor regarding bills passed by the State Legislative Assembly.
+
+🔍 Option-by-Option Breakdown:
+- Statement 1 is CORRECT: The Governor can grant assent, withhold assent, or reserve the bill.
+- Statement 2 is CORRECT: The Governor can reserve bills for the President's consideration (mandatory under Article 200 proviso if it derogates from High Court powers).
+- Statement 3 is CORRECT: The first proviso to Article 200 explicitly mandates: if the Bill is passed again by the House(s) with or without amendment and presented to the Governor, the Governor shall not withhold assent therefrom.
+- All three statements are factually correct under the text of Article 200, making Option D the correct answer.
+
+📊 Latest 2025–2026 Benchmark: In landmark constitutional rulings (e.g. State of Punjab vs Principal Secretary), the Supreme Court reiterated that Governors cannot indefinitely pocket-veto bills and must return them 'as soon as possible'.
+
+⚠️ UPSC Exam Trap: UPSC questions frequently test whether the Governor can withhold assent a second time. Once reconsidered and passed again, granting assent is constitutionally mandatory.","Constitution of India, Article 200"
+18-11-2026,"In the context of the Sovereign Green Bonds (SGrBs) framework notified by the Government of India, evaluate the following:
+1. Proceeds generated from Sovereign Green Bonds can be allocated to finance nuclear power generation and fossil fuel exploration projects.
+2. Sovereign Green Bonds issued by the Reserve Bank of India are eligible for Statutory Liquidity Ratio (SLR) compliance by commercial banks.
+Which of the statements given above is/are INCORRECT?",1 only,2 only,Both 1 and 2,Neither 1 nor 2,A,"📘 Core Concept: Sovereign Green Bonds (SGrBs) are government debt instruments specifically earmarked to fund climate mitigation, renewable energy, and clean transportation infrastructure.
+
+🔍 Option-by-Option Breakdown:
+- Statement 1 is INCORRECT: India's Sovereign Green Bond Framework explicitly designates nuclear power generation, fossil fuel extraction, large hydro projects over 25 MW, and direct biomass burning as 'Excluded Projects'. Proceeds cannot be allocated to them.
+- Statement 2 is CORRECT: The RBI classifies SGrBs as eligible government securities for Statutory Liquidity Ratio (SLR) calculations, encouraging commercial banks to hold them.
+- The question specifically asks to identify the INCORRECT statement, making Option A (1 only) the correct answer.
+
+📊 Latest 2025–2026 Benchmark: The Ministry of Finance and RBI raised over ₹20,000 crore through 5-year and 10-year Sovereign Green Bonds with proceeds audited by the Comptroller and Auditor General (CAG).
+
+⚠️ UPSC Exam Trap: Negative directive ('INCORRECT'). Candidates who recognize Statement 2 is correct often mistakenly select Option B. Always check whether the prompt asks for correct or incorrect!","Union Ministry of Finance, Green Bond Framework"
+18-11-2026,"Match the following architectural components of classical Hindu temple architecture with their primary structural functions:
+1. Garbhagriha : Innermost sanctum sanctorum housing the principal deity
+2. Shikhara/Vimana : Mountain-like superstructure crowning the sanctum
+3. Antarala : Vestibule transition chamber connecting sanctum and Mandapa
+4. Jagati : Raised stone plinth upon which the entire temple rests
+How many of the above pairs are correctly matched?",Only one pair,Only two pairs,Only three pairs,All four pairs,D,"📘 Core Concept: Classical Hindu temple architecture (Nagara in North India, Dravida in South India, and Vesara in Deccan) follows standardized Vastu-Purusha Mandala structural geometry.
+
+🔍 Option-by-Option Breakdown:
+- Pair 1 is CORRECT: Garbhagriha (womb chamber) is the unadorned cubical sanctum where the main murti/icon is consecrated.
+- Pair 2 is CORRECT: Shikhara (in Nagara) and Vimana (in Dravida) represent the towering mountain-peak roof rising directly above the sanctum sanctorum.
+- Pair 3 is CORRECT: Antarala is the intermediate foyer connecting the sanctum sanctorum to the pillared assembly hall (Mandapa).
+- Pair 4 is CORRECT: Jagati is the elevated stone terrace or podium common in Nagara and Panchayatana temples upon which devotees perform circumambulation (Pradakshina).
+- All four pairs are correctly matched, making Option D correct.
+
+📊 Latest 2025–2026 Benchmark: Recent UNESCO World Heritage inscriptions (Sacred Ensembles of the Hoysalas) emphasize Vesara stellate plinths and Antarala craftsmanship.
+
+⚠️ UPSC Exam Trap: UPSC frequently mixes up the Mandapa (pillared hall) with Antarala (vestibule), or claims Shikhara refers to the entrance gate (Gopuram is the entrance gate in Dravida style).",NCERT Fine Arts & Classical Indian Architecture
+18-11-2026,"Which among the following parameters are governed under the Global Biofuels Alliance (GBA) launched during India's G20 Presidency?
+1. It was jointly established with India, the United States, and Brazil as the founding members.
+2. The alliance seeks to accelerate worldwide adoption of sustainable biofuels and advance standardized market trading.
+3. It operates as a formal multilateral development bank that directly disburses subsidised soft loans for biorefineries.
+Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",A,"📘 Core Concept: The Global Biofuels Alliance (GBA) is a multilateral initiative to establish global markets for sustainable biofuels, sharing technological know-how and standardizing certification.
+
+🔍 Option-by-Option Breakdown:
+- Statement 1 is CORRECT: Initiated under India's G20 Presidency in New Delhi, the founding members are India, the USA, and Brazil (which together produce over 85% of global ethanol).
+- Statement 2 is CORRECT: GBA develops international environmental standards, promotes technology transfer, and facilitates cross-border biofuel trade.
+- Statement 3 is INCORRECT: GBA is an advocacy, technical cooperation, and policy coordination platform. It is NOT a multilateral lending bank or financial institution and does not disburse soft loans.
+- Statements 1 and 2 only are correct, making Option A correct.
+
+📊 Latest 2025–2026 Benchmark: India achieved its 20% ethanol blending in petrol target (E20) nationwide ahead of the 2025–2026 deadline, saving foreign exchange on crude imports.
+
+⚠️ UPSC Exam Trap: Candidates often assume every international alliance operates like the New Development Bank or Asian Infrastructure Investment Bank. GBA is not a lending agency.","Ministry of Petroleum and Natural Gas, G20 India"
+18-11-2026,"Statement-I: Keoladeo National Park in Rajasthan and Loktak Lake in Manipur are currently the only two Indian wetland sites maintained on the Montreux Record.
+Statement-II: The Montreux Record is a specialized register under the Ramsar Convention listing wetland sites where adverse ecological changes have occurred or are likely to occur from pollution or human interference.
+Which one of the following is correct in respect of the above statements?","Both Statement-I and II are correct, and II is the correct explanation","Both Statement-I and II are correct, but II is not the correct explanation","Statement-I is correct, but Statement-II is incorrect","Statement-I is incorrect, but Statement-II is correct",B,"📘 Core Concept: The Montreux Record is a global register of priority wetland sites under the Ramsar Convention facing immediate ecological degradation.
+
+🔍 Option-by-Option Breakdown:
+- Statement-I is CORRECT: Currently, Keoladeo National Park (facing water shortage and grazing pressures) and Loktak Lake (threatened by deforestation and the Ithai barrage affecting phumdis) are the only two Indian sites on the Record.
+- Statement-II is CORRECT: The Montreux Record was established under Recommendation 4.8 of the Ramsar Conference of Contracting Parties (1990) to highlight wetlands facing ecological damage from human activity.
+- While both statements are factually correct, Statement-II defines what the Montreux Record is; it does not explain why Keoladeo and Loktak specifically are on it (nor does it explain the historical exit of Chilika Lake). Thus, Statement-II is not the correct explanation for Statement-I, making Option B correct.
+
+📊 Latest 2025–2026 Benchmark: India boasts 85+ designated Ramsar wetlands, the second largest network in Asia, reflecting intensified wetland conservation.
+
+⚠️ UPSC Exam Trap: Chilika Lake in Odisha was placed on the Montreux Record in 1993 but successfully removed in 2002 after ecological restoration. Chilika is NO LONGER on the Montreux Record!",Ramsar Convention on Wetlands
+18-11-2026,"Which among the following constitutional and statutory provisions govern the Central Vigilance Commission (CVC)?
+1. It was originally established by an executive resolution in 1964 following recommendations of the Santhanam Committee.
+2. It was granted statutory status by Parliament through the Central Vigilance Commission Act, 2003.
+3. The Central Vigilance Commissioner is appointed by the President on the recommendation of a Committee that includes the Chief Justice of India.
+Select the correct answer using the code given below:",1 and 2 only,2 and 3 only,1 and 3 only,"1, 2 and 3",A,"📘 Core Concept: The Central Vigilance Commission (CVC) is India's apex vigilance institution, free from executive control, monitoring all vigilance activity under the Central Government.
+
+🔍 Option-by-Option Breakdown:
+- Statement 1 is CORRECT: The CVC was set up in February 1964 on the recommendations of the Committee on Prevention of Corruption chaired by K. Santhanam.
+- Statement 2 is CORRECT: The Supreme Court's landmark judgment in Vineet Narain (1997) directed statutory status, leading Parliament to enact the CVC Act, 2003.
+- Statement 3 is INCORRECT: Under Section 4 of the CVC Act 2003, the appointment committee consists of: (1) Prime Minister (Chairperson), (2) Minister of Home Affairs, and (3) Leader of the Opposition in Lok Sabha. The Chief Justice of India is NOT a member of the CVC appointment committee.
+- Statements 1 and 2 only are correct, making Option A correct.
+
+📊 Latest 2025–2026 Benchmark: CVC issued revised digital vigilance guidelines and mandatory preventive vigilance audit matrices across all Public Sector Banks.
+
+⚠️ UPSC Exam Trap: UPSC frequently confuses the appointment committee of CVC with that of Lokpal. The Chief Justice of India (CJI) is in the Lokpal Selection Committee, NOT the CVC committee!","Central Vigilance Commission Act, 2003"
+18-11-2026,"In the context of India's external debt management, which one of the following components consistently constitutes the largest share of India's total external debt?",Commercial Borrowings (ECBs),Non-Resident Indian (NRI) Deposits,Short-term Trade Credit,Sovereign Multilateral Loans,A,"📘 Core Concept: India's external debt comprises obligations owed to non-resident creditors across foreign currencies and Indian Rupees.
+
+🔍 Option-by-Option Breakdown:
+- Option A (Commercial Borrowings / ECBs) is CORRECT: External Commercial Borrowings (ECBs) constitute the single largest component of India's external debt, consistently accounting for roughly 34% to 38% of total outstanding external debt.
+- Option B is INCORRECT: Non-Resident Indian (NRI) deposits form the second largest share at approximately 21% to 23%.
+- Option C is INCORRECT: Short-term trade credit accounts for around 18% to 20%.
+- Option D is INCORRECT: Sovereign multilateral and bilateral debt combined represents a much smaller component (~13% to 15%).
+
+📊 Latest 2025–2026 Benchmark: RBI External Debt Statistics indicate that India's external debt-to-GDP ratio remains sustainable and resilient at under 19%, with US Dollar denominated debt accounting for over 54% of total liabilities.
+
+⚠️ UPSC Exam Trap: Aspirants frequently assume Government Sovereign Borrowing is the biggest liability. Private corporate ECBs are by far the largest component of India's external debt.",Reserve Bank of India & Ministry of Finance
+18-11-2026,Which one of the following fundamental principles of quantum mechanics guarantees the theoretical eavesdropping immunity of Quantum Key Distribution (QKD)?,The No-Cloning Theorem and Measurement Disturbance,Constructive Interference of Classic Electromagnetic Waves,Relativistic Gravitational Time Dilation,Deterministic Polarisation Reflection without Decoherence,A,"📘 Core Concept: Quantum Key Distribution (QKD) leverages quantum physics rather than mathematical complexity to produce symmetric encryption keys shared between two parties (Alice and Bob).
+
+🔍 Option-by-Option Breakdown:
+- Option A is CORRECT: The No-Cloning Theorem of quantum mechanics states that it is physically impossible to create an identical copy of an arbitrary unknown quantum state. Furthermore, by Heisenberg's uncertainty principle, any measurement by an eavesdropper (Eve) unavoidably perturbs the quantum state, instantly alerting the legitimate communication partners to the intrusion.
+- Option B is INCORRECT: Constructive interference is a classical wave phenomenon utilized in radio and laser optics, offering zero cryptographic eavesdropping security.
+- Option C is INCORRECT: Gravitational time dilation belongs to Einstein's General Relativity, used in GPS clock synchronization.
+- Option D is INCORRECT: Classical polarisation reflection is deterministically interceptable without quantum observer perturbation.
+
+📊 Latest 2025–2026 Benchmark: India's National Quantum Mission (NQM) under DST achieved secure metropolitan Quantum Key Distribution links exceeding 150 km over commercial optical fibre.
+
+⚠️ UPSC Exam Trap: QKD does not transmit the encrypted message data through quantum channels; it only transmits the random cryptographic key (symmetric one-time pad).","Department of Science & Technology, National Quantum Mission"
