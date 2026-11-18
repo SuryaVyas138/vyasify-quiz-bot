@@ -1152,17 +1152,14 @@ def finish_quiz(context: CallbackContext, uid):
 
     for i, r in enumerate(ranked, 1):
         r_time = format_time(r['time'])
-        platform = r.get("platform", "telegram")
-        platform_icon = "🌐" if platform == "web" else "📱"
-        platform_badge = "🌐 Web" if platform == "web" else "📱 Bot"
         row_str = render_template(row_tmpl, {
             "rank": i,
-            "name": f"{platform_icon} {clean_text(r['name'])}",
+            "name": clean_text(r['name']),
             "score": r['score'],
             "time": r_time,
-            "platform": platform_badge,
-            "platform_badge": platform_badge,
-            "platform_icon": platform_icon
+            "platform": "",
+            "platform_badge": "",
+            "platform_icon": ""
         })
         res_text += f"{row_str}\n"
 
@@ -1211,17 +1208,14 @@ def show_leaderboard(update: Update, context: CallbackContext):
     text = f"{lb_title} ({day_key})\n\n"
     for i, r in enumerate(ranked, 1):
         r_time = format_time(r['time'])
-        platform = r.get("platform", "telegram")
-        platform_icon = "🌐" if platform == "web" else "📱"
-        platform_badge = "🌐 Web" if platform == "web" else "📱 Bot"
         row_str = render_template(row_tmpl, {
             "rank": i,
-            "name": f"{platform_icon} {clean_text(r['name'])}",
+            "name": clean_text(r['name']),
             "score": r['score'],
             "time": r_time,
-            "platform": platform_badge,
-            "platform_badge": platform_badge,
-            "platform_icon": platform_icon
+            "platform": "",
+            "platform_badge": "",
+            "platform_icon": ""
         })
         text += f"{row_str}\n"
     
@@ -1961,13 +1955,11 @@ def post_evening_hall_of_fame(bot, chat_id, date_key=None):
         for i, r in enumerate(ranked, 1):
             r_time = format_time(r.get("time", 0))
             score = r.get("score", 0)
-            platform = r.get("platform", "telegram")
-            platform_badge = "🌐 Web" if platform == "web" else "📱 Bot"
             name = clean_text(r.get("name", "Aspirant"))
             if i in medals:
-                lines.append(f"{i}. {medals[i]} <b>{name}</b> ({platform_badge}) — {score} / 20 ({r_time})")
+                lines.append(f"{i}. {medals[i]} <b>{name}</b> — {score} / 20 ({r_time})")
             else:
-                lines.append(f"{i}. <b>{name}</b> ({platform_badge}) — {score} / 20 ({r_time})")
+                lines.append(f"{i}. <b>{name}</b> — {score} / 20 ({r_time})")
         body = "\n".join(lines)
         body += "\n\n💡 <i>Rankings are calculated based on Highest Score and Fastest Completion Time.</i>"
 
