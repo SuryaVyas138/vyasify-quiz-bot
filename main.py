@@ -292,6 +292,43 @@ def clean_text(text):
     text = normalize_newlines(text)
     return html.escape(text)
 
+def format_explanation_for_telegram(text):
+    """
+    Formats explanation text for clean, readable display in Telegram comments.
+    Ensures proper spacing between:
+    - Numbered points (1. 2. 3.)
+    - Statement-I / Statement-II etc.
+    - Sentences starting with key UPSC signal words
+    - Bullet points (•, -, *)
+    - Paragraphs
+    """
+    if not text:
+        return ""
+    s = normalize_newlines(text)
+
+    # Double newline before numbered points: 1. 2. 3.
+    s = re.sub(r'([^\n])\n+([1-9]\d*\.\s+)', r'\1\n\n\2', s)
+
+    # Double newline before Statement-I, Statement-II etc.
+    s = re.sub(r'([^\n])\n+(Statement-[IVX]+[:\s])', r'\1\n\n\2', s, flags=re.IGNORECASE)
+
+    # Double newline before bullet points (•, -, *)
+    s = re.sub(r'([^\n])\n+([•\-\*]\s+)', r'\1\n\n\2', s)
+
+    # Double newline before "Therefore", "Hence", "Thus", "Note:", "Key Point"
+    s = re.sub(
+        r'([^\n])\n+((?:Therefore|Hence|Thus|Note:|Key Point|Important|However|Also)[,:\s])',
+        r'\1\n\n\2',
+        s,
+        flags=re.IGNORECASE
+    )
+
+    # Collapse 3+ newlines to max 2
+    s = re.sub(r'\n{3,}', '\n\n', s)
+
+    return html.escape(s.strip())
+
+
 def format_question_for_telegram(text):
     """
     Formats question statement for Telegram HTML:
@@ -1680,7 +1717,7 @@ def post_group_quiz(bot, chat_id, questions, date_key, posting_msg_id=None):
         # Includes direct detailed explanation in a tap-to-reveal <tg-spoiler> so students get direct text in channel with 0 redirects!
         clean_q_formatted = format_question_for_telegram(q.get('question', ''))
         raw_exp_text = q.get('explanation', '') or ''
-        clean_exp_formatted = format_question_for_telegram(raw_exp_text) if raw_exp_text else ''
+        clean_exp_formatted = format_explanation_for_telegram(raw_exp_text) if raw_exp_text else ''
 
         question_post_text = f"📝 <b>QUESTION {idx+1}</b>\n\n{clean_q_formatted}"
 
@@ -2209,7 +2246,7 @@ def serve_group_explanation_dm(update: Update, context: CallbackContext):
         f"📘 <b>Q{q_index + 1}. {clean_text(q_data.get('question', ''))}</b>\n\n"
         f"✅ <b>Correct Answer:</b> ({correct_letter}) {clean_text(correct_text)}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📖 <b>Explanation:</b>\n{clean_text(raw_explanation)}\n\n"
+        f"📖 <b>Explanation:</b>\n{format_explanation_for_telegram(raw_explanation)}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🔗 <b>For more in-depth editorial notes, Prelims PYQ analysis, and GS mapping:</b>\n"
         f"<a href='https://vyasify.in/current-affairs'>📰 vyasify.in/current-affairs</a>"
